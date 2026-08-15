@@ -1,0 +1,465 @@
+# tools.registry.yaml
+# SIM Layanan Warga RW 047 — Registry Tool Lengkap
+# Versi: 1.0
+# Referensi: .agents/AGENTS.md §2.1, §3.1 | docs/API_SPECIFICATION.md Bagian 3
+#
+# CATATAN VERIFIKASI KELENGKAPAN:
+#   Total endpoint di API_SPECIFICATION.md Bagian 3: 27 endpoint
+#   Total entri di registry ini: 27 entri (api_tools)
+#   + 6 entri system_tools (non-API, level development)
+#
+# Setiap field "requires_human_confirmation: true" selaras dengan daftar aksi
+# pada AGENTS.md §3.1. Field "roles" sesuai kolom "Akses" tiap endpoint.
+# Base URL disimpan di .env (API_BASE_URL) — DILARANG hardcode (RULES.md §2.3).
+
+api_tools:
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # MODUL: AUTH (API_SPECIFICATION.md §3.1)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: auth_login
+    description: "Autentikasi pengguna dan menerbitkan access token"
+    method: POST
+    path: /auth/login
+    auth_required: false
+    roles:
+      - PUBLIC
+    requires_human_confirmation: false
+    rate_limit:
+      max_attempts_per_minute: 5      # API_SPECIFICATION.md §2.5: 5x/menit per IP+email
+      respect_retry_after: true
+    notes: "Tidak boleh di-retry otomatis tanpa jeda (AGENTS.md §2.1). Wajib menghormati 429."
+
+  - name: auth_logout
+    description: "Mencabut token akses aktif (invalidasi sesi)"
+    method: POST
+    path: /auth/logout
+    auth_required: true
+    roles:
+      - ALL_AUTHENTICATED    # Seluruh role terautentikasi
+    requires_human_confirmation: false
+
+  - name: get_current_user
+    description: "Mengambil data profil pengguna yang sedang login berdasarkan token aktif"
+    method: GET
+    path: /auth/me
+    auth_required: true
+    roles:
+      - ALL_AUTHENTICATED
+    requires_human_confirmation: false
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # MODUL: USER MANAGEMENT (API_SPECIFICATION.md §3.2)
+  # Seluruh endpoint modul ini memerlukan permission user.manage (SUPER_ADMIN)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: list_users
+    description: "Mengambil daftar akun pengguna dengan filter dan pagination"
+    method: GET
+    path: /users
+    auth_required: true
+    roles:
+      - SUPER_ADMIN
+    requires_human_confirmation: false
+    notes: "Dipanggil hanya dalam konteks tugas SUPER_ADMIN (AGENTS.md §2.1)"
+
+  - name: create_user
+    description: "Membuat akun pengguna baru (mis. akun pengurus RT/RW baru)"
+    method: POST
+    path: /users
+    auth_required: true
+    roles:
+      - SUPER_ADMIN
+    requires_human_confirmation: true
+    human_confirmation_reason: "Pembuatan akun bersifat sensitif dan permanen (AGENTS.md §3.1)"
+
+  - name: update_user
+    description: "Memperbarui sebagian data akun pengguna (mis. mengubah status, role, atau kontak)"
+    method: PATCH
+    path: /users/{id}
+    auth_required: true
+    roles:
+      - SUPER_ADMIN
+    requires_human_confirmation: true
+    human_confirmation_reason: "Perubahan status akun (ACTIVE/INACTIVE) adalah aksi ireversibel terhadap akses pengguna (AGENTS.md §3.1)"
+    path_params:
+      - name: id
+        type: integer
+        description: "ID pengguna"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # MODUL: KEPENDUDUKAN (API_SPECIFICATION.md §3.3)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: list_kartu_keluarga
+    description: "Mengambil daftar Kartu Keluarga sesuai kewenangan (area-scoped untuk Ketua RT)"
+    method: GET
+    path: /kartu-keluarga
+    auth_required: true
+    roles:
+      - KETUA_RT          # Lingkup RT sendiri
+      - SEKRETARIS_RW
+      - KETUA_RW
+      - SUPER_ADMIN       # Seluruh RT
+    requires_human_confirmation: false
+    notes: "Hasil selalu diasumsikan masked (no_kk_masked) kecuali endpoint detail (AGENTS.md §2.1)"
+
+  - name: create_kartu_keluarga
+    description: "Mendaftarkan Kartu Keluarga baru"
+    method: POST
+    path: /kartu-keluarga
+    auth_required: true
+    roles:
+      - KETUA_RT          # Untuk RT-nya sendiri
+      - SEKRETARIS_RW
+      - SUPER_ADMIN
+    requires_human_confirmation: false
+    validation:
+      - field: no_kk
+        rule: "16 digit angka — validasi wajib dilakukan Agent sebelum memanggil tool (AGENTS.md §2.1)"
+
+  - name: create_warga
+    description: "Menambahkan data warga baru ke dalam suatu Kartu Keluarga. Status awal: MENUNGGU_VERIFIKASI"
+    method: POST
+    path: /warga
+    auth_required: true
+    roles:
+      - KETUA_RT
+      - SEKRETARIS_RW
+    requires_human_confirmation: false
+    validation:
+      - field: nik
+        rule: "16 digit angka — validasi wajib dilakukan Agent sebelum pemanggilan (AGENTS.md §2.1)"
+      - field: no_kk
+        rule: "16 digit angka — KK harus sudah terdaftar"
+
+  - name: get_warga_detail
+    description: "Mengambil detail satu data warga berdasarkan hash NIK (bukan NIK plaintext)"
+    method: GET
+    path: /warga/{nik_hash}
+    auth_required: true
+    roles:
+      - KETUA_RT          # Lingkup RT sendiri
+      - SEKRETARIS_RW
+      - KETUA_RW
+      - SUPER_ADMIN
+    requires_human_confirmation: false
+    path_params:
+      - name: nik_hash
+        type: string
+        description: "Hash HMAC-SHA256 dari NIK — bukan NIK plaintext (AGENTS.md §2.1)"
+    notes: "NIK DILARANG muncul sebagai plaintext pada URL/log (AGENTS.md §3.2, RULES.md §2.3)"
+
+  - name: update_warga
+    description: "Memperbarui data warga. Perubahan status_warga memicu alur verifikasi Sekretaris RW"
+    method: PATCH
+    path: /warga/{nik_hash}
+    auth_required: true
+    roles:
+      - KETUA_RT          # Mengajukan perubahan
+      - SEKRETARIS_RW     # Memverifikasi
+    requires_human_confirmation: false
+    path_params:
+      - name: nik_hash
+        type: string
+        description: "Hash HMAC-SHA256 dari NIK"
+
+  - name: verify_warga
+    description: "Memverifikasi (menyetujui/menolak) data warga berstatus MENUNGGU_VERIFIKASI"
+    method: PATCH
+    path: /warga/{nik_hash}/verify
+    auth_required: true
+    roles:
+      - SEKRETARIS_RW     # Satu-satunya role yang berwenang (AGENTS.md §2.1)
+    requires_human_confirmation: false
+    path_params:
+      - name: nik_hash
+        type: string
+        description: "Hash HMAC-SHA256 dari NIK"
+    notes: "Hanya dapat menyetujui/menolak warga berstatus MENUNGGU_VERIFIKASI"
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # MODUL: PERSURATAN (API_SPECIFICATION.md §3.4)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: submit_pengajuan_surat
+    description: "Mengajukan permohonan surat baru oleh warga"
+    method: POST
+    path: /surat/pengajuan
+    auth_required: true
+    roles:
+      - WARGA             # Akses: WARGA (AGENTS.md §2.1: lihat metadata Akses, bukan prefix path)
+    requires_human_confirmation: false
+
+  - name: track_pengajuan_surat
+    description: "Melacak status pengajuan surat menggunakan kode pelacakan publik"
+    method: GET
+    path: /surat/pengajuan/track/{tracking_code}
+    auth_required: false
+    roles:
+      - PUBLIC
+    requires_human_confirmation: false
+    path_params:
+      - name: tracking_code
+        type: string
+        description: "Kode pelacakan pengajuan surat (mis. SRT-20260812-A8F3K2)"
+
+  - name: list_pengajuan_surat
+    description: "Mengambil daftar pengajuan surat untuk keperluan verifikasi pengurus (area-scoped)"
+    method: GET
+    path: /surat/pengajuan
+    auth_required: true
+    roles:
+      - KETUA_RT
+      - SEKRETARIS_RW
+      - KETUA_RW
+      - SUPER_ADMIN
+    requires_human_confirmation: false
+    notes: "Wajib hormati area scoping — Agent tidak boleh membangun query melewati filter RT (AGENTS.md §2.1)"
+
+  - name: verify_pengajuan_surat
+    description: "Melakukan verifikasi/persetujuan tahap berjenjang pada satu pengajuan surat"
+    method: POST
+    path: /surat/pengajuan/{id}/verify
+    auth_required: true
+    roles:
+      - KETUA_RT
+      - SEKRETARIS_RW
+      - KETUA_RW
+    requires_human_confirmation: true
+    human_confirmation_reason: "Mengubah status resmi dokumen kependudukan — terutama pada tahap RW_REVIEW (AGENTS.md §3.1)"
+    path_params:
+      - name: id
+        type: integer
+        description: "pengajuan_id"
+    notes: >
+      Method POST (bukan PATCH) sesuai API_SPECIFICATION.md §3.4.4.
+      Endpoint yang sama digunakan Ketua RT (SUBMITTED→RT_REVIEW) dan
+      Sekretaris/Ketua RW (RT_REVIEW→RW_REVIEW→COMPLETED), dibedakan
+      berdasarkan status saat ini dan role pemanggil.
+      Mendukung header Idempotency-Key (API_SPECIFICATION.md §1.8).
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # MODUL: LAPORAN & ASPIRASI (API_SPECIFICATION.md §3.5)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: submit_laporan_aspirasi
+    description: "Mengirim laporan/aspirasi baru dari warga. Sistem menjadwalkan job klasifikasi AI secara asinkron"
+    method: POST
+    path: /laporan-aspirasi
+    auth_required: true
+    roles:
+      - WARGA             # Akses: WARGA
+    requires_human_confirmation: false
+
+  - name: track_laporan_aspirasi
+    description: "Melacak status penanganan laporan menggunakan nomor tiket"
+    method: GET
+    path: /laporan-aspirasi/track/{ticket_number}
+    auth_required: false
+    roles:
+      - PUBLIC
+    requires_human_confirmation: false
+    path_params:
+      - name: ticket_number
+        type: string
+        description: "Nomor tiket laporan (mis. LPR2026081200088)"
+
+  - name: list_laporan_aspirasi
+    description: "Mengambil daftar laporan/aspirasi untuk pemantauan pengurus, dapat difilter berdasarkan kategori AI"
+    method: GET
+    path: /laporan-aspirasi
+    auth_required: true
+    roles:
+      - KETUA_RT
+      - SEKRETARIS_RW
+      - KETUA_RW
+      - SUPER_ADMIN
+    requires_human_confirmation: false
+
+  - name: update_laporan_status
+    description: "Memperbarui status penanganan laporan oleh pengurus RW (disposisi/tindak lanjut)"
+    method: PATCH
+    path: /laporan-aspirasi/{id}/status
+    auth_required: true
+    roles:
+      - KETUA_RT
+      - SEKRETARIS_RW
+      - KETUA_RW
+    requires_human_confirmation: false
+    path_params:
+      - name: id
+        type: integer
+        description: "aspirasi_id"
+    notes: >
+      LARANGAN: Agent wajib menolak permintaan mengubah status CLOSED kembali ke status
+      apapun, bahkan jika diminta pengguna — laporkan alasan penolakan (AGENTS.md §2.1).
+      Status CLOSED bersifat final (AGENTS.md §3.1).
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # MODUL: KEUANGAN (API_SPECIFICATION.md §3.6)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: list_iuran_types
+    description: "Mengambil daftar jenis iuran yang aktif"
+    method: GET
+    path: /iuran-types
+    auth_required: true
+    roles:
+      - ALL_AUTHENTICATED    # Seluruh peran terautentikasi
+    requires_human_confirmation: false
+
+  - name: create_catatan_iuran
+    description: "Mencatat transaksi pembayaran iuran warga oleh Ketua RT"
+    method: POST
+    path: /catatan-iuran
+    auth_required: true
+    roles:
+      - KETUA_RT
+    requires_human_confirmation: false
+    notes: >
+      WAJIB menangani 409 Conflict jika kombinasi no_kk + iuran_type_id + periode
+      sudah tercatat (UNIQUE constraint, DATABASE_SCHEMA.md §3.10, AGENTS.md §2.1).
+      Cek idempotency via GET sebelum retry POST (AGENTS.md §2.3).
+
+  - name: approve_catatan_iuran
+    description: "Menyetujui atau menolak transaksi iuran yang dicatat Ketua RT"
+    method: PATCH
+    path: /catatan-iuran/{id}/approve
+    auth_required: true
+    roles:
+      - BENDAHARA_RW
+    requires_human_confirmation: true
+    human_confirmation_reason: "Transaksi keuangan — aksi approve/reject bersifat final (AGENTS.md §3.1)"
+    path_params:
+      - name: id
+        type: integer
+        description: "iuran_id"
+
+  - name: get_rekapitulasi_iuran
+    description: "Mengambil rekapitulasi laporan keuangan iuran per periode/RT"
+    method: GET
+    path: /catatan-iuran/rekapitulasi
+    auth_required: true
+    roles:
+      - BENDAHARA_RW
+      - KETUA_RW
+      - SUPER_ADMIN
+    requires_human_confirmation: false
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # MODUL: INFORMASI PUBLIK (API_SPECIFICATION.md §3.7)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: list_informasi_publik
+    description: "Mengambil daftar pengumuman/berita/agenda yang telah dipublikasikan"
+    method: GET
+    path: /informasi-publik
+    auth_required: false
+    roles:
+      - PUBLIC
+    requires_human_confirmation: false
+
+  - name: create_informasi_publik
+    description: "Membuat konten informasi publik baru"
+    method: POST
+    path: /informasi-publik
+    auth_required: true
+    roles:
+      - SEKRETARIS_RW
+      - KETUA_RW
+      - SUPER_ADMIN
+    requires_human_confirmation: false
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # MODUL: DASHBOARD (API_SPECIFICATION.md §3.8)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - name: get_dashboard_summary
+    description: "Mengambil ringkasan statistik dashboard sesuai peran pengguna (area-scoped untuk Ketua RT)"
+    method: GET
+    path: /dashboard/summary
+    auth_required: true
+    roles:
+      - KETUA_RT
+      - SEKRETARIS_RW
+      - KETUA_RW
+      - BENDAHARA_RW
+      - SUPER_ADMIN
+    requires_human_confirmation: false
+    notes: "Konten response bervariasi otomatis per role, area-scoped untuk KETUA_RT"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TOOLS NON-API: LEVEL SISTEM/DEVELOPMENT (AGENTS.md §2.2)
+# ═══════════════════════════════════════════════════════════════════════════
+
+system_tools:
+
+  - name: run_migration
+    description: "Menjalankan php artisan migrate"
+    command: "php artisan migrate"
+    authorized_agents:
+      - database-worker
+    requires_human_confirmation: true
+    human_confirmation_reason: "Wajib konfirmasi manusia jika environment bukan local (AGENTS.md §3.1)"
+    hard_prohibition: "migrate:fresh DILARANG di environment selain local"
+
+  - name: run_seeder
+    description: "Menjalankan php artisan db:seed"
+    command: "php artisan db:seed"
+    authorized_agents:
+      - database-worker
+    requires_human_confirmation: true
+    human_confirmation_reason: "DemoDataSeeder dilarang di staging/production; seeder lain perlu konfirmasi (AGENTS.md §3.1)"
+
+  - name: run_test
+    description: "Menjalankan php artisan test"
+    command: "php artisan test"
+    authorized_agents:
+      - qa-worker
+    requires_human_confirmation: false
+
+  - name: run_linter
+    description: "Menjalankan pint (PHP) atau npm run lint (JS)"
+    commands:
+      php: "./vendor/bin/pint"
+      js: "npm run lint"
+    authorized_agents:
+      - backend-worker
+      - frontend-worker
+      - qa-worker
+    requires_human_confirmation: false
+
+  - name: git_commit
+    description: "Membuat commit Git"
+    authorized_agents:
+      - backend-worker
+      - database-worker
+      - frontend-worker
+      - qa-worker
+      - devops-worker
+    requires_human_confirmation: false
+    commit_convention:
+      format: "<type>(<scope>): <deskripsi singkat>\n\n<body opsional>\n\nRefs: US-<kode>"
+      types: [feat, fix, refactor, test, docs, chore]
+    hard_prohibition: "git push --force ke branch main/develop DILARANG (AGENTS.md §2.2, RULES.md §2.5)"
+
+  - name: docker_compose_exec
+    description: "Eksekusi perintah dalam container Docker"
+    authorized_agents:
+      - devops-worker
+    requires_human_confirmation: false
+    hard_prohibition: "DILARANG menjalankan terhadap container yang terhubung ke database production (AGENTS.md §2.2)"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PRINSIP UMUM FUNCTION CALLING (AGENTS.md §2.3)
+# ═══════════════════════════════════════════════════════════════════════════
+
+function_calling_principles:
+  validate_before_call: true         # Validasi payload terhadap API_SPECIFICATION.md sebelum kirim tool call
+  one_tool_one_intent: true          # Tidak menggabungkan create + approve dalam satu tool call buatan sendiri
+  idempotency_check: true            # Untuk POST/PATCH: cek status via GET sebelum retry agar tidak duplikasi
+  no_retry_on_4xx: true              # 4xx = client error; analisis dulu, jangan retry dengan payload sama
+  exponential_backoff_on_5xx: true   # Max 3 kali dengan exponential backoff (AGENTS.md §3.3)
+  respect_429_retry_after: true      # Berhenti memanggil endpoint sama; tunggu waktu yang diinformasikan

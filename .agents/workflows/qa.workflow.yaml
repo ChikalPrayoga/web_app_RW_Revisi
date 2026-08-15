@@ -1,0 +1,321 @@
+# qa.workflow.yaml
+# SIM Layanan Warga RW 047 — Workflow QA & Validasi
+# Versi: 1.0
+# Referensi: .agents/AGENTS.md §1.2.e (QA Worker), §3.3, §6 (Definition of Done)
+#            .agents/RULES.md §3.1, §4.3
+#            docs/USER_STORIES.md (Acceptance Criteria & Edge Cases)
+#            docs/API_SPECIFICATION.md
+#
+# Workflow ini digunakan secara spesifik oleh QA Worker Agent untuk:
+# 1. Memvalidasi checklist Definition of Done (AGENTS.md §6)
+# 2. Menjalankan test suite dan linting
+# 3. Memvalidasi coverage edge case dari USER_STORIES.md
+# 4. Melaporkan hasil ke Orchestrator dengan jelas dan spesifik
+
+id: qa-workflow
+display_name: "QA & Validation Workflow"
+description: >
+  Workflow QA yang dijalankan setelah Backend/Frontend Worker selesai.
+  Memvalidasi seluruh poin Definition of Done (AGENTS.md §6) dan memastikan
+  tidak ada test yang gagal sebelum tugas dilaporkan selesai ke Orchestrator.
+  QA Worker TIDAK BOLEH menandai tugas selesai jika ada test yang gagal
+  (AGENTS.md §1.2.e).
+version: "1.0"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TRIGGER
+# ─────────────────────────────────────────────────────────────────────────────
+trigger:
+  type: step_dependency
+  depends_on_step: dispatch_workers    # Dijalankan setelah Worker Agent selesai (main.workflow.yaml)
+  agent: qa-worker
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INPUT
+# ─────────────────────────────────────────────────────────────────────────────
+inputs:
+  - name: worker_outputs
+    type: object
+    required: true
+    description: "Hasil implementasi dari Backend/Frontend/Database Worker"
+  - name: task_context
+    type: object
+    required: true
+    description: "Task Context berisi Acceptance Criteria dari USER_STORIES.md yang perlu divalidasi"
+  - name: changed_files
+    type: array
+    required: true
+    description: "Daftar file yang diubah Worker — QA hanya menguji area yang relevan"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STEPS
+# ─────────────────────────────────────────────────────────────────────────────
+steps:
+
+  # ── Step 1: Read Acceptance Criteria ─────────────────────────────────────────
+  - id: read_acceptance_criteria
+    name: "Baca Acceptance Criteria dari USER_STORIES.md"
+    description: >
+      QA Worker membaca Acceptance Criteria (format Given-When-Then) dari
+      USER_STORIES.md untuk sub-tugas yang dikerjakan Worker. Ini menjadi
+      dasar test case yang akan ditulis/divalidasi (AGENTS.md §1.2.e).
+    actions:
+      - load_file:
+          path: "docs/USER_STORIES.md"
+          extract_ac_for: "{{ inputs.task_context.user_story_codes }}"
+      - load_file:
+          path: "docs/API_SPECIFICATION.md"
+          extract_endpoints: "{{ inputs.task_context.target_endpoints }}"
+      - identify_edge_cases:
+          # Edge case dari USER_STORIES.md Bagian 3 wajib memiliki test coverage
+          # (AGENTS.md §1.2.e — bukan hanya happy path)
+          source: "docs/USER_STORIES.md"
+          section: "edge_cases"
+    next: validate_dod_checklist
+
+  # ── Step 2: Validate Definition of Done Checklist ────────────────────────────
+  - id: validate_dod_checklist
+    name: "Validasi Checklist Definition of Done (AGENTS.md §6)"
+    description: >
+      QA Worker memvalidasi seluruh poin Definition of Done secara spesifik
+      sebelum menjalankan test otomatis. Ini adalah checklist yang wajib
+      dipenuhi setiap Worker sebelum melaporkan tugas selesai (AGENTS.md §6).
+    checklist:
+      - id: dod_1
+        item: "Implementasi sesuai kontrak API_SPECIFICATION.md"
+        validation:
+          compare_endpoint_path: true
+          compare_endpoint_method: true
+          compare_response_structure: true
+          compare_status_codes: true
+        ref: "AGENTS.md §6 — poin 1"
+        fail_action: return_to_worker
+
+      - id: dod_2
+        item: "Implementasi sesuai skema DATABASE_SCHEMA.md (jika berkaitan dengan data)"
+        validation:
+          check_field_names: true
+          check_field_types: true
+          check_constraints: true           # PK/FK/UNIQUE/NOT NULL
+          check_sensitive_field_encryption: true  # NIK/KK wajib pakai EncryptedNik Cast
+        ref: "AGENTS.md §6 — poin 2"
+        fail_action: return_to_worker
+
+      - id: dod_3
+        item: "Acceptance Criteria dari USER_STORIES.md terpenuhi dan memiliki test otomatis"
+        validation:
+          check_ac_coverage: true
+          require_automated_test: true
+          check_edge_case_coverage: true    # AGENTS.md §1.2.e — bukan hanya happy path
+        ref: "AGENTS.md §6 — poin 3"
+        fail_action: return_to_worker
+
+      - id: dod_4
+        item: "Tidak melanggar larangan AGENTS.md §3.2"
+        validation:
+          check_rbac_bypass: true           # Tidak ada Policy di-skip
+          check_hard_delete: true           # SoftDeletes harus digunakan
+          check_unmasked_sensitive_data: true  # NIK/KK tidak muncul unmasked
+          check_no_hardcoded_secrets: true  # RULES.md §2.3
+        ref: "AGENTS.md §6 — poin 4, RULES.md §2.3, §2.5"
+        fail_action: return_to_worker
+
+      - id: dod_5
+        item: "Linting lolos tanpa error"
+        validation:
+          run_php_linter: true              # pint
+          run_js_linter: true               # npm run lint
+        ref: "AGENTS.md §6 — poin 5"
+        fail_action: run_linter_and_retry
+
+      - id: dod_6
+        item: "Commit mengikuti konvensi Conventional Commits (AGENTS.md §5.4)"
+        validation:
+          check_commit_format: true
+          check_refs_user_story: true       # Pesan commit wajib sertakan Refs: US-xxx
+        ref: "AGENTS.md §6 — poin 6"
+        fail_action: notify_worker_to_amend_commit
+
+      - id: dod_7
+        item: "Deviasi dari dokumen sumber sudah ditandai dan menunggu/mendapat konfirmasi manusia"
+        validation:
+          check_shared_scratchpad_for_deviations: true
+          require_human_confirmation_for_deviations: true  # AGENTS.md §4.4
+        ref: "AGENTS.md §6 — poin 7"
+        fail_action: flag_for_orchestrator
+
+    on_any_fail:
+      action: return_to_worker
+      include_specific_failures: true       # Sertakan poin DoD mana yang gagal
+    next: write_tests
+
+  # ── Step 3: Write Tests ──────────────────────────────────────────────────────
+  - id: write_tests
+    name: "Tulis Test Otomatis (Feature Test & Unit Test)"
+    description: >
+      QA Worker menulis Feature Test dan Unit Test yang menerjemahkan langsung
+      Acceptance Criteria (format Given-When-Then) dari USER_STORIES.md menjadi
+      test case otomatis (AGENTS.md §1.2.e).
+
+      Coverage yang wajib:
+      - Happy path: flow normal sesuai AC utama
+      - Edge cases: kondisi batas dari USER_STORIES.md Bagian 3
+      - Authorization: test bahwa role yang tidak berwenang mendapat 403 Forbidden
+      - Area scoping: test bahwa KETUA_RT tidak dapat mengakses data RT lain
+    actions:
+      - write_feature_tests:
+          for_each_acceptance_criteria: true
+          format: "Given-When-Then"
+          location: "tests/Feature/{{ inputs.task_context.target_module }}/"
+          test_happy_path: true
+          test_edge_cases: true             # USER_STORIES.md Bagian 3 — wajib (AGENTS.md §1.2.e)
+          test_authorization: true          # Role yang salah → 403
+          test_area_scoping: true           # Data di luar wilayah RT → 403 atau 404
+      - write_unit_tests:
+          for_service_methods: true
+          location: "tests/Unit/{{ inputs.task_context.target_module }}/"
+    next: run_tests
+
+  # ── Step 4: Run Tests ────────────────────────────────────────────────────────
+  - id: run_tests
+    name: "Jalankan Test Suite"
+    description: >
+      QA Worker menjalankan seluruh test suite menggunakan php artisan test.
+      Jika ada test yang gagal, tugas dikembalikan ke Worker terkait dengan
+      laporan spesifik — TIDAK ditandai selesai (AGENTS.md §1.2.e, §3.3).
+    actions:
+      - invoke_tool:
+          name: run_test
+          command: "php artisan test"
+          scope: relevant_module_tests    # Minimal test untuk modul yang diubah
+          fail_on_error: true
+          capture_output: true
+    on_failure:
+      action: return_to_worker
+      report:
+        include_failed_test_names: true      # Nama test yang gagal
+        include_failed_assertions: true      # Assertion message yang gagal
+        include_line_numbers: true
+      reason: >
+        Test gagal. QA Worker melaporkan kegagalan spesifik ke Orchestrator;
+        Orchestrator mengembalikan tugas ke Worker terkait untuk perbaikan.
+        Tugas TIDAK ditandai selesai sampai lolos (AGENTS.md §1.2.e, §3.3).
+    next: run_linter
+
+  # ── Step 5: Run Linter ──────────────────────────────────────────────────────
+  - id: run_linter
+    name: "Jalankan Linter Final"
+    description: >
+      Linting final setelah test lolos. QA Worker menjalankan linting pada
+      seluruh file yang berubah (AGENTS.md §6 poin 5, RULES.md §4.3).
+    actions:
+      - invoke_tool:
+          name: run_linter
+          commands:
+            php: "./vendor/bin/pint"
+            js: "npm run lint"
+          scope: changed_files
+          fail_on_error: true
+    on_failure:
+      action: return_to_worker
+      reason: "Linting gagal pada hasil kerja Worker — worker perlu memperbaiki"
+    next: security_check
+
+  # ── Step 6: Security Check ───────────────────────────────────────────────────
+  - id: security_check
+    name: "Pemeriksaan Keamanan Sebelum Commit"
+    description: >
+      QA Worker melakukan pemeriksaan keamanan dasar pada diff perubahan
+      sebelum commit final (RULES.md §4.3, §2.3).
+    checks:
+      - name: "No hardcoded secrets"
+        scan_for:
+          - pattern: "API_KEY\\s*=\\s*['\"][^'\"]{8,}['\"]"   # Pola credential hardcode
+          - pattern: "password\\s*=\\s*['\"][^'\"]+['\"]"
+          - pattern: "DB_PASSWORD\\s*=\\s*[^$\\n]"
+        fail_if_found: true
+        ref: "RULES.md §2.3"
+      - name: "No unmasked NIK/KK in code"
+        scan_for:
+          - pattern: "\\b\\d{16}\\b"    # 16 digit angka berurutan (potensi NIK/KK)
+            except_in:
+              - "tests/"                 # Test fixture boleh menggunakan data fiktif
+              - "*.example"
+        warn_if_found: true             # Warning, bukan hard fail — review manual
+        ref: "AGENTS.md §3.2, RULES.md §2.3"
+      - name: "No .env file committed"
+        scan_for:
+          - file_pattern: ".env"
+            exclude: ".env.example"
+        fail_if_found: true
+        ref: "RULES.md §2.3"
+    next: report_qa_result
+
+  # ── Step 7: Report QA Result ─────────────────────────────────────────────────
+  - id: report_qa_result
+    name: "Laporan Hasil QA ke Orchestrator"
+    description: >
+      QA Worker melaporkan hasil validasi ke Orchestrator secara jujur dan spesifik.
+      Laporan ini digunakan Orchestrator pada step aggregate_result (main.workflow.yaml).
+    actions:
+      - generate_qa_report:
+          include_dod_checklist_results: true
+          include_test_results:
+            total_tests: true
+            passed: true
+            failed: true                     # Daftar lengkap test yang gagal (jika ada)
+            skipped: true
+          include_lint_results: true
+          include_security_check_results: true
+          include_coverage_summary: true     # Coverage per modul/endpoint
+      - mark_task_status:
+          # QA Worker TIDAK menandai selesai jika ada kegagalan (AGENTS.md §1.2.e)
+          status: |
+            if all_tests_passed and all_lint_passed and all_dod_passed:
+              COMPLETED
+            else:
+              FAILED_RETURN_TO_WORKER
+    on_status_completed:
+      next_step_in_parent: aggregate_result  # Kembali ke main.workflow.yaml
+    on_status_failed:
+      action: return_to_worker
+      with_report: true
+    end: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ERROR HANDLING
+# ─────────────────────────────────────────────────────────────────────────────
+on_error:
+  test_failure:
+    action: return_to_worker
+    preserve_execution_log: true
+    report_specific_failures: true
+  linter_failure:
+    action: return_to_worker
+    preserve_execution_log: true
+  unrecoverable:
+    action: report_to_orchestrator
+    preserve_execution_log: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DEFINITION OF DONE — Referensi Lengkap (AGENTS.md §6)
+# Digunakan oleh step validate_dod_checklist di atas sebagai sumber kebenaran.
+# ─────────────────────────────────────────────────────────────────────────────
+definition_of_done:
+  source: ".agents/AGENTS.md"
+  section: "6. Definition of Done"
+  items:
+    - ref: "§6.1"
+      desc: "Implementasi sesuai kontrak API_SPECIFICATION.md — path, method, status code, struktur response persis sama"
+    - ref: "§6.2"
+      desc: "Implementasi sesuai skema DATABASE_SCHEMA.md — tidak ada field/tabel menyimpang tanpa konfirmasi"
+    - ref: "§6.3"
+      desc: "Acceptance Criteria dari USER_STORIES.md terpenuhi dan memiliki test otomatis yang lolos"
+    - ref: "§6.4"
+      desc: "Tidak melanggar larangan AGENTS.md §3.2 (RBAC bypass, hard-delete, unmasked sensitive data, dst.)"
+    - ref: "§6.5"
+      desc: "Linting (pint/npm run lint) lolos tanpa error"
+    - ref: "§6.6"
+      desc: "Commit mengikuti konvensi §5.4 dan mereferensikan kode User Story terkait (Refs: US-xxx)"
+    - ref: "§6.7"
+      desc: "Jika ada deviasi dari dokumen sumber, sudah ditandai eksplisit dan menunggu/mendapat konfirmasi manusia"

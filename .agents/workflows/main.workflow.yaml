@@ -1,0 +1,241 @@
+# main.workflow.yaml
+# SIM Layanan Warga RW 047 — Workflow Eksekusi Utama
+# Versi: 1.0
+# Referensi: .agents/AGENTS.md §4.3 (Alur Konteks dalam Eksekusi Graph/Workflow)
+#            .agents/AGENTS.md §3.1 (Aksi wajib human-in-the-loop)
+#            .agents/AGENTS.md §4.1 (Lapisan Konteks)
+#
+# Workflow ini mengimplementasikan alur utama dari AGENTS.md §4.3:
+#   load_context → orchestrator_decompose → dispatch_workers →
+#   run_qa → aggregate_result → report_to_user
+
+id: main-workflow
+display_name: "Main Execution Workflow"
+description: >
+  Workflow eksekusi standar untuk tugas berskala besar yang memerlukan
+  dekomposisi oleh Orchestrator, pengerjaan paralel/sequential oleh Worker,
+  validasi QA, dan agregasi hasil akhir.
+version: "1.0"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TRIGGER
+# ─────────────────────────────────────────────────────────────────────────────
+trigger:
+  type: user_request
+  description: "Dipicu ketika pengguna mengirimkan tugas berskala besar ke Orchestrator"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STEP DEFINITIONS
+# Mengikuti urutan: load_context → orchestrator_decompose → dispatch_workers
+#                  → run_qa → aggregate_result → report_to_user
+# Sesuai AGENTS.md §4.3
+# ─────────────────────────────────────────────────────────────────────────────
+steps:
+
+  # ── Step 1: Load Global Context ──────────────────────────────────────────────
+  - id: load_context
+    name: "Muat Global Context"
+    agent: product-director
+    description: >
+      Orchestrator memuat seluruh Global Context sebelum bertindak (AGENTS.md §4.1).
+      Context ini bersifat permanen dan dimuat ulang di awal setiap sesi/workflow baru.
+    actions:
+      - load_file:
+          path: ".agents/AGENTS.md"
+          priority: 1
+      - load_file:
+          path: ".agents/RULES.md"
+          priority: 1
+      - load_file:
+          path: "docs/PRD_SIM_Layanan_Warga_RW047.md"
+          priority: 2
+      - load_file:
+          path: "docs/SYSTEM_ARCHITECTURE.md"
+          priority: 2
+      - load_file:
+          path: "docs/DATABASE_SCHEMA.md"
+          priority: 2
+      - load_file:
+          path: "docs/API_SPECIFICATION.md"
+          priority: 2
+      - load_file:
+          path: "docs/USER_STORIES.md"
+          priority: 2
+    on_failure:
+      action: abort
+      reason: "Global Context tidak dapat dimuat — seluruh Agent memerlukan dokumen sumber"
+    next: orchestrator_decompose
+
+  # ── Step 2: Orchestrator Decompose ──────────────────────────────────────────
+  - id: orchestrator_decompose
+    name: "Dekomposisi Tugas oleh Orchestrator"
+    agent: product-director
+    description: >
+      Orchestrator memecah permintaan pengguna menjadi sub-tugas per modul
+      sesuai PRD Bagian 4 (AGENTS.md §1.2.a). Menentukan urutan eksekusi:
+      - Sequential: jika ada dependensi antar sub-tugas
+      - Parallel: jika sub-tugas independen (mis. Backend & Frontend dapat
+        berjalan paralel setelah kontrak API disepakati)
+    actions:
+      - analyze_user_request:
+          map_to_prd_fr: true           # Petakan ke Functional Requirements PRD §4
+          identify_dependencies: true   # Identifikasi dependensi antar Worker
+      - create_task_contexts:
+          per_worker: true              # Buat Task Context terpisah per Worker (AGENTS.md §4.2)
+          include_acceptance_criteria: true  # Sertakan AC dari USER_STORIES.md
+      - determine_execution_order:
+          strategy: auto               # Sequential jika ada dependensi, Parallel jika tidak
+    output:
+      - task_contexts: list           # Daftar Task Context per Worker Agent
+      - execution_plan: object        # Graph eksekusi (sequential/parallel)
+    on_failure:
+      action: report_to_user
+      reason: "Orchestrator tidak dapat mendekomposisi tugas — kemungkinan permintaan ambigu"
+    next: dispatch_workers
+
+  # ── Step 3: Dispatch Workers ─────────────────────────────────────────────────
+  - id: dispatch_workers
+    name: "Distribusi Sub-Tugas ke Worker Agent"
+    agent: product-director
+    description: >
+      Orchestrator mendistribusikan Task Context ke Worker Agent yang relevan
+      (AGENTS.md §4.3). Worker yang independen berjalan paralel; Worker yang
+      bergantung pada hasil Worker lain berjalan sequential.
+
+      Penting: Worker Agent TIDAK saling memanggil langsung — semua koordinasi
+      melalui Orchestrator via Shared Scratchpad (AGENTS.md §4.2, §4.4).
+    parallel_workers:
+      # Worker yang dapat berjalan paralel setelah kontrak API disepakati
+      - agent: backend-worker
+        receives: task_context.backend
+        scope_guard: true             # Enforced scope_paths dari agents.config.yaml
+      - agent: frontend-worker
+        receives: task_context.frontend
+        scope_guard: true
+    sequential_workers:
+      # Database Worker harus selesai sebelum Backend Worker menggunakan model
+      - agent: database-worker
+        receives: task_context.database
+        must_complete_before:
+          - backend-worker
+        scope_guard: true
+    shared_scratchpad:
+      enabled: true
+      purpose: >
+        Worker menulis keputusan teknis lintas-domain yang perlu diketahui
+        Worker lain (mis. Backend mengumumkan perubahan struktur response API).
+        Orchestrator meneruskan informasi ini secara eksplisit — Worker tidak
+        mengakses Shared Scratchpad Worker lain secara langsung (AGENTS.md §4.2).
+    human_confirmation_gate:
+      # Gate ini mencegat sebelum eksekusi tool yang memerlukan konfirmasi manusia
+      # (AGENTS.md §3.1) — Worker mengirim permintaan konfirmasi ke Orchestrator,
+      # Orchestrator mengirim ke pengguna, dan menunggu respons eksplisit.
+      tools_requiring_confirmation:
+        - create_user
+        - update_user           # Menonaktifkan/mengaktifkan akun
+        - verify_pengajuan_surat
+        - approve_catatan_iuran
+        - deploy_staging
+        - deploy_production
+        - git_push_main
+        - run_migration_non_local
+        - run_seeder_non_local
+    next: run_qa
+
+  # ── Step 4: Run QA ───────────────────────────────────────────────────────────
+  - id: run_qa
+    name: "Validasi QA oleh QA Worker"
+    agent: qa-worker
+    description: >
+      QA Worker menjalankan test suite dan linting setelah Backend/Frontend Worker
+      selesai, sebelum tugas dilaporkan selesai ke Orchestrator (AGENTS.md §1.2.e).
+      Mengikuti checklist Definition of Done pada AGENTS.md §6.
+      Jika ada test yang gagal, tugas dikembalikan ke Worker terkait — TIDAK
+      ditandai selesai (AGENTS.md §1.2.e, §3.3).
+    actions:
+      - invoke_tool:
+          name: run_test
+          command: "php artisan test"
+          fail_on_error: true         # Test gagal = workflow berhenti, kembali ke Worker
+      - invoke_tool:
+          name: run_linter
+          commands:
+            php: "./vendor/bin/pint"
+            js: "npm run lint"
+          fail_on_error: true
+    on_failure:
+      action: return_to_worker
+      reason: "Test atau linting gagal — Worker terkait perlu memperbaiki sebelum dilanjutkan"
+      include_failure_details: true   # Sertakan nama test gagal dan assertion message
+    uses_workflow: "qa.workflow.yaml"  # QA Worker mengikuti qa.workflow.yaml secara penuh
+    next: aggregate_result
+
+  # ── Step 5: Aggregate Result ─────────────────────────────────────────────────
+  - id: aggregate_result
+    name: "Agregasi Hasil oleh Orchestrator"
+    agent: product-director
+    description: >
+      Orchestrator mengumpulkan hasil dari seluruh Worker Agent dan memvalidasi
+      konsistensi lintas modul terhadap dokumen sumber (AGENTS.md §1.2.a, §4.4).
+    actions:
+      - collect_worker_outputs:
+          from_agents: [backend-worker, frontend-worker, database-worker, qa-worker]
+      - validate_consistency:
+          against:
+            - docs/API_SPECIFICATION.md    # Kontrak endpoint harus terpenuhi
+            - docs/DATABASE_SCHEMA.md      # Skema database harus konsisten
+            - docs/USER_STORIES.md         # Acceptance Criteria harus terpenuhi
+      - flag_deviations:
+          # Jika ada keputusan teknis yang menyimpang dari dokumen sumber,
+          # tandai sebagai deviasi yang perlu konfirmasi manusia (AGENTS.md §4.4)
+          require_human_confirmation: true
+      - archive_task_contexts:
+          # Task Context dibuang setelah diagregasi (AGENTS.md §4.1)
+          archive_execution_log: true     # Execution Log diarsipkan di .agents/logs/execution/
+    on_failure:
+      action: report_to_user
+      reason: "Inkonsistensi ditemukan lintas modul — detail tersedia di Execution Log"
+    next: report_to_user
+
+  # ── Step 6: Report to User ───────────────────────────────────────────────────
+  - id: report_to_user
+    name: "Laporan Hasil ke Pengguna"
+    agent: product-director
+    description: >
+      Orchestrator melaporkan hasil akhir kepada pengguna. Laporan mencakup:
+      - File yang dibuat/dimodifikasi beserta alasan
+      - Hasil test dan linting
+      - Deviasi dari dokumen sumber (jika ada) yang perlu konfirmasi
+      - Dependensi yang memerlukan persetujuan (mis. package baru — RULES.md §2.2)
+    actions:
+      - generate_summary:
+          include_files_changed: true
+          include_test_results: true
+          include_deviations: true
+          include_pending_approvals: true
+      - discard_task_contexts: true     # Buang Task Context (AGENTS.md §4.1)
+    end: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ERROR HANDLING GLOBAL
+# ─────────────────────────────────────────────────────────────────────────────
+on_error:
+  default:
+    action: report_to_orchestrator
+    then: report_to_user
+  unrecoverable:
+    action: abort_and_report
+    preserve_execution_log: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LOGGING
+# ─────────────────────────────────────────────────────────────────────────────
+logging:
+  execution_log_dir: ".agents/logs/execution/"
+  log_each_step: true
+  log_tool_calls: true
+  sensitive_fields_mask:
+    - nik
+    - no_kk
+    - password
+    - access_token

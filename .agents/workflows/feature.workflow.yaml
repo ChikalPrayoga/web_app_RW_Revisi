@@ -1,0 +1,221 @@
+# feature.workflow.yaml
+# SIM Layanan Warga RW 047 — Workflow Pengembangan Fitur
+# Versi: 1.0
+# Referensi: .agents/AGENTS.md §4.3, §5.1–5.5, §6
+#            .agents/RULES.md §2.2, §2.3, §4
+#            docs/API_SPECIFICATION.md, docs/DATABASE_SCHEMA.md, docs/USER_STORIES.md
+#
+# Workflow ini digunakan untuk tugas implementasi fitur spesifik (satu endpoint,
+# satu modul, atau satu User Story), di mana Worker Agent memerlukan panduan
+# langkah-langkah standar dari "read spec" hingga "commit & report".
+
+id: feature-workflow
+display_name: "Feature Development Workflow"
+description: >
+  Workflow standar untuk implementasi satu fitur/endpoint/User Story.
+  Digunakan oleh Backend Worker, Database Worker, atau Frontend Worker
+  untuk memastikan alur kerja konsisten: spec → implement → test → lint → commit.
+version: "1.0"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TRIGGER
+# ─────────────────────────────────────────────────────────────────────────────
+trigger:
+  type: orchestrator_dispatch
+  description: "Dipicu oleh Orchestrator saat mendispatch Task Context ke Worker tertentu"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# INPUT dari Orchestrator
+# ─────────────────────────────────────────────────────────────────────────────
+inputs:
+  - name: task_context
+    type: object
+    required: true
+    description: "Task Context dari Orchestrator berisi sub-tugas, AC dari USER_STORIES.md, dan file yang relevan"
+  - name: worker_id
+    type: string
+    required: true
+    description: "ID Worker Agent yang menjalankan workflow ini (mis. backend-worker)"
+  - name: target_module
+    type: string
+    required: true
+    description: "Nama modul yang sedang dikerjakan (mis. Persuratan, Keuangan)"
+  - name: target_endpoints
+    type: array
+    required: false
+    description: "Daftar endpoint yang diimplementasikan (dari API_SPECIFICATION.md)"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STEPS
+# ─────────────────────────────────────────────────────────────────────────────
+steps:
+
+  # ── Step 1: Read Spec ─────────────────────────────────────────────────────────
+  - id: read_spec
+    name: "Baca Spesifikasi yang Relevan"
+    description: >
+      Worker membaca dokumen sumber yang relevan untuk Task Context yang diterima
+      (RULES.md §4.1 — wajib baca isi lengkap file sebelum mengedit).
+      Hanya memuat konteks domain yang relevan (AGENTS.md §4.2 — domain isolation).
+    actions:
+      - load_task_context:
+          from: inputs.task_context
+      - read_relevant_spec:
+          # Backend Worker: baca API_SPECIFICATION.md seksi modul target
+          if_worker: backend-worker
+          files:
+            - "docs/API_SPECIFICATION.md"
+            - "docs/SYSTEM_ARCHITECTURE.md"
+            - "docs/USER_STORIES.md"    # Untuk Acceptance Criteria
+          focus_section: "{{ inputs.target_module }}"
+      - read_relevant_spec:
+          # Database Worker: baca DATABASE_SCHEMA.md seksi tabel target
+          if_worker: database-worker
+          files:
+            - "docs/DATABASE_SCHEMA.md"
+            - "docs/SYSTEM_ARCHITECTURE.md"
+          focus_section: "{{ inputs.target_module }}"
+      - read_relevant_spec:
+          # Frontend Worker: baca USER_STORIES.md dan API_SPECIFICATION.md
+          if_worker: frontend-worker
+          files:
+            - "docs/USER_STORIES.md"
+            - "docs/API_SPECIFICATION.md"
+            - "docs/UI_UX_SPECIFICATION.md"
+          focus_section: "{{ inputs.target_module }}"
+      - read_existing_files:
+          # Baca file yang akan diedit sebelum modifikasi (RULES.md §4.1)
+          scope_guard: true             # Hanya file dalam scope_paths Worker ini
+          identify_callers: true        # Identifikasi pemanggil fungsi yang akan diubah
+    next: implement
+
+  # ── Step 2: Implement ────────────────────────────────────────────────────────
+  - id: implement
+    name: "Implementasi Fitur"
+    description: >
+      Worker menulis kode sesuai spesifikasi. Mengikuti seluruh standar pada
+      AGENTS.md §5 dan RULES.md §1–3.
+    guardrails:
+      - no_placeholder_code: true        # RULES.md §2.1 — dilarang placeholder/TODO
+      - no_hardcoded_secrets: true       # RULES.md §2.3 — credential dari env()
+      - follow_module_structure: true    # AGENTS.md §5.1 — app/Modules/<NamaModul>/
+      - follow_naming_conventions: true  # AGENTS.md §5.2
+      - strict_type_hints: true          # RULES.md §3.2
+      - declare_strict_types: true       # RULES.md §3.2
+      - thin_controller: true            # RULES.md §1.2, AGENTS.md §5.3.1
+      - db_transaction_for_multi_write: true  # RULES.md §3.1
+      - audit_log_on_state_change: true  # AGENTS.md §5.3.3
+      - use_scope_or_policy_for_queries: true  # RULES.md §1.2, AGENTS.md §3.2
+    api_contract_enforcement:
+      # Implementasi backend wajib persis sesuai API_SPECIFICATION.md
+      path_must_match: true
+      method_must_match: true
+      response_structure_must_match: true
+      status_code_must_match: true
+    human_confirmation_required_for:
+      # Intercept sebelum tool call yang memerlukan konfirmasi (AGENTS.md §3.1)
+      - create_user
+      - update_user
+      - verify_pengajuan_surat
+      - approve_catatan_iuran
+    shared_scratchpad_write:
+      # Worker dapat menulis ke Shared Scratchpad jika ada keputusan teknis
+      # lintas-domain yang perlu diketahui Worker lain (AGENTS.md §4.2)
+      enabled: true
+      on_deviation_from_spec: true      # Wajib tulis jika ada deviasi dari dokumen sumber
+    next: self_review
+
+  # ── Step 3: Self Review ──────────────────────────────────────────────────────
+  - id: self_review
+    name: "Review Mandiri Worker"
+    description: >
+      Worker memverifikasi implementasinya terhadap checklist sebelum menyerahkan
+      ke QA Worker (mengacu AGENTS.md §6 — Definition of Done).
+    checklist:
+      - item: "Implementasi sesuai kontrak API_SPECIFICATION.md (path, method, status code, struktur response)"
+        ref: "AGENTS.md §6.1"
+      - item: "Implementasi sesuai skema DATABASE_SCHEMA.md jika berkaitan dengan data"
+        ref: "AGENTS.md §6.2"
+      - item: "Acceptance Criteria dari USER_STORIES.md terpenuhi"
+        ref: "AGENTS.md §6.3"
+      - item: "Tidak melanggar larangan AGENTS.md §3.2 (RBAC bypass, hard-delete, unmasked data)"
+        ref: "AGENTS.md §6.4"
+      - item: "Tidak ada placeholder, TODO, atau kode setengah jadi (RULES.md §2.1)"
+        ref: "RULES.md §2.1"
+      - item: "Tidak ada credential/secret hardcoded (RULES.md §2.3)"
+        ref: "RULES.md §2.3"
+      - item: "Struktur folder tidak berubah dari yang disepakati (RULES.md §2.4)"
+        ref: "RULES.md §2.4"
+    on_checklist_fail:
+      action: return_to_implement
+      reason: "Checklist self-review gagal — implementasi perlu diperbaiki sebelum diserahkan ke QA"
+    next: run_linter
+
+  # ── Step 4: Run Linter ──────────────────────────────────────────────────────
+  - id: run_linter
+    name: "Jalankan Linter"
+    description: >
+      Worker menjalankan linter pada file yang diubah sebelum menyerahkan ke QA.
+      Linting wajib lolos tanpa error (AGENTS.md §6.5, RULES.md §4.3).
+    actions:
+      - invoke_tool:
+          name: run_linter
+          scope: changed_files_only    # Hanya lint file yang baru diubah
+          fail_on_error: true
+    on_failure:
+      action: return_to_implement
+      reason: "Linting gagal — perbaiki error linting sebelum melanjutkan"
+    next: commit
+
+  # ── Step 5: Commit ──────────────────────────────────────────────────────────
+  - id: commit
+    name: "Git Commit"
+    description: >
+      Worker membuat commit Git dengan pesan yang mengikuti Conventional Commits
+      (AGENTS.md §5.4). Diff diperiksa ulang untuk memastikan tidak ada rahasia
+      yang ter-commit (RULES.md §4.3, §2.3).
+    actions:
+      - verify_no_secrets_in_diff: true     # RULES.md §4.3, §2.3
+      - invoke_tool:
+          name: git_commit
+          message_format: "<type>(<scope>): <deskripsi singkat>\n\nRefs: US-<kode>"
+          allowed_types: [feat, fix, refactor, test, docs, chore]
+          scope: "{{ inputs.target_module | lower }}"
+    hard_prohibition:
+      - "git push --force ke branch main/develop — DILARANG (RULES.md §2.5)"
+    next: notify_orchestrator
+
+  # ── Step 6: Notify Orchestrator ─────────────────────────────────────────────
+  - id: notify_orchestrator
+    name: "Notifikasi ke Orchestrator"
+    description: >
+      Worker melaporkan hasil implementasi ke Orchestrator secara jujur dan spesifik
+      (RULES.md §4.3). Laporan mencakup file yang diubah, hasil linting, dan
+      deviasi (jika ada) yang perlu dikonfirmasi manusia (AGENTS.md §4.4).
+    actions:
+      - report_to_orchestrator:
+          include_files_changed: true
+          include_lint_results: true
+          include_deviations: true      # Deviasi dari dokumen sumber wajib dilaporkan
+          include_pending_confirmations: true
+    on_deviation_found:
+      action: flag_for_human_confirmation  # AGENTS.md §4.4
+    end: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ERROR HANDLING
+# ─────────────────────────────────────────────────────────────────────────────
+on_error:
+  blockers:
+    # Blocker: kondisi yang menghentikan workflow dan wajib dilaporkan ke Orchestrator
+    - condition: "package_baru_diperlukan"
+      action: stop_and_report
+      reason: >
+        Dependensi baru diperlukan — hentikan implementasi, jelaskan kebutuhan
+        (nama package, versi, alasan), dan tunggu persetujuan pengguna (RULES.md §2.2).
+    - condition: "spec_ambigu"
+      action: stop_and_ask_orchestrator
+      reason: "Bertanya klarifikasi sebelum bertindak pada instruksi ambigu (AGENTS.md §3.3)"
+  default:
+    action: report_to_orchestrator
+    preserve_execution_log: true

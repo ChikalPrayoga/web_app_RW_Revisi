@@ -1,0 +1,129 @@
+# models.config.yaml
+# SIM Layanan Warga RW 047 — Konfigurasi Model LLM per Agent
+# Versi: 1.0
+# Referensi: .agents/AGENTS.md §1.2 (karakteristik model per peran), §3.3 (error handling & retry)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PROFIL MODEL
+# Setiap profil mendefinisikan preferensi model, parameter generasi, dan batas retry.
+# Agent memilih profil berdasarkan id mereka di agents.config.yaml.
+# ─────────────────────────────────────────────────────────────────────────────
+
+profiles:
+
+  # Orchestrator — diutamakan model dengan kapabilitas reasoning tinggi (AGENTS.md §1.2.a)
+  - id: orchestrator-profile
+    for_agent_id: product-director
+    model_tier: pro             # Model besar; dipanggil tidak sering (per fase tugas besar)
+    temperature: 0.2            # Rendah: diutamakan konsistensi logika dekomposisi tugas
+    max_tokens: 8192
+    context_strategy: full      # Selalu muat seluruh Global Context sebelum bertindak
+    call_frequency: low         # Dipanggil per fase, bukan per step kecil
+    retry:
+      max_attempts: 3
+      backoff_strategy: exponential
+      base_delay_seconds: 2
+
+  # Backend Worker — butuh konteks API yang luas dan kemampuan koding menengah-tinggi
+  - id: backend-worker-profile
+    for_agent_id: backend-worker
+    model_tier: inherit         # Gunakan model default sesi; dapat di-override ke pro untuk tugas kompleks
+    temperature: 0.1            # Sangat rendah: kode harus deterministik dan sesuai spesifikasi
+    max_tokens: 16384
+    context_strategy: domain    # Hanya muat konteks domain relevan (API spec + arsitektur)
+    retry:
+      max_attempts: 3
+      backoff_strategy: exponential
+      base_delay_seconds: 2
+
+  # Database Worker — kode migration harus presisi; toleransi kreativitas sangat rendah
+  - id: database-worker-profile
+    for_agent_id: database-worker
+    model_tier: inherit
+    temperature: 0.0            # Nol: migration harus 100% deterministik terhadap DATABASE_SCHEMA.md
+    max_tokens: 8192
+    context_strategy: domain
+    retry:
+      max_attempts: 3
+      backoff_strategy: exponential
+      base_delay_seconds: 2
+
+  # Frontend Worker — butuh kreativitas lebih tinggi untuk UI/UX
+  - id: frontend-worker-profile
+    for_agent_id: frontend-worker
+    model_tier: inherit
+    temperature: 0.3            # Sedikit lebih tinggi untuk variasi UI, tetap terkontrol
+    max_tokens: 16384
+    context_strategy: domain
+    retry:
+      max_attempts: 3
+      backoff_strategy: exponential
+      base_delay_seconds: 2
+
+  # QA Worker — butuh kemampuan analisis kritis untuk menemukan edge case
+  - id: qa-worker-profile
+    for_agent_id: qa-worker
+    model_tier: inherit
+    temperature: 0.1
+    max_tokens: 8192
+    context_strategy: domain
+    retry:
+      max_attempts: 3
+      backoff_strategy: exponential
+      base_delay_seconds: 2
+
+  # DevOps Worker — konfigurasi infrastruktur harus deterministik
+  - id: devops-worker-profile
+    for_agent_id: devops-worker
+    model_tier: inherit
+    temperature: 0.0
+    max_tokens: 4096
+    context_strategy: domain
+    retry:
+      max_attempts: 3
+      backoff_strategy: exponential
+      base_delay_seconds: 2
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PENGATURAN LAYANAN AI EKSTERNAL
+# Nilai aktual wajib diambil dari environment variable — DILARANG hardcode
+# sesuai RULES.md §2.3 dan AGENTS.md §3.2
+# ─────────────────────────────────────────────────────────────────────────────
+
+external_ai_service:
+  # Layanan klasifikasi laporan/aspirasi (SYSTEM_ARCHITECTURE.md §2.2)
+  classification_service:
+    base_url_env: "AI_CLASSIFICATION_BASE_URL"      # Nilai dari env(), bukan hardcode
+    api_key_env: "AI_CLASSIFICATION_API_KEY"         # Wajib diambil dari .env
+    timeout_seconds: 30
+    retry:
+      max_attempts: 3                                # Selaras dengan AI_CLASSIFICATION_MAX_RETRIES di .env
+      backoff_strategy: exponential
+      base_delay_seconds: 5
+    fallback_on_failure: "manual_classification"     # Fallback ke klasifikasi manual (AGENTS.md §3.3)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# KEBIJAKAN RATE LIMITING (selaras dengan API_SPECIFICATION.md §1.8 & §2.5)
+# ─────────────────────────────────────────────────────────────────────────────
+
+rate_limiting:
+  auth_login:
+    max_attempts_per_minute: 5    # API_SPECIFICATION.md §2.5: 5 percobaan/menit per IP+email
+    wait_on_429: true             # Hormati Retry-After header; jangan retry tanpa jeda (AGENTS.md §3.3)
+  default_endpoints:
+    wait_on_429: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LOGGING MODEL
+# ─────────────────────────────────────────────────────────────────────────────
+
+logging:
+  log_prompts: false              # Jangan log prompt mentah yang mungkin mengandung data sensitif
+  log_responses: false            # Idem
+  log_tool_calls: true            # Log setiap tool call (nama + parameter hash)
+  sensitive_field_mask:
+    - nik
+    - no_kk
+    - password
+    - access_token
+    - api_key

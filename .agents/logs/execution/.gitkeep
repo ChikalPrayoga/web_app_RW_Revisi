@@ -1,0 +1,15 @@
+# Folder ini digunakan oleh Tool Execution Agent untuk menyimpan execution log.
+# Format log: JSON Lines (JSONL) — satu baris per tool call.
+# Referensi: .agents/AGENTS.md §4.1, config/agents.config.yaml (tool_execution_agent.logging)
+#
+# Field setiap entri log:
+#   - tool_name         : Nama tool yang dipanggil
+#   - caller_agent_id   : ID Agent pemanggil (mis. backend-worker)
+#   - parameters_hash   : SHA-256 dari parameter (plaintext DILARANG jika mengandung NIK/KK)
+#   - result_status     : "success" | "client_error" | "server_error" | "rate_limited"
+#   - timestamp_utc     : Waktu pemanggilan dalam ISO 8601 UTC
+#   - duration_ms       : Durasi pemanggilan dalam milidetik
+#
+# File log dalam folder ini TIDAK di-commit ke Git (tambahkan ke .gitignore):
+#   .agents/logs/execution/*.jsonl
+# kecuali .gitkeep ini.

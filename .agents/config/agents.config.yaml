@@ -1,0 +1,283 @@
+# agents.config.yaml
+# SIM Layanan Warga RW 047 — Konfigurasi Agent AntiGravity
+# Versi: 1.0
+# Referensi: .agents/AGENTS.md §1.2, §3.1, §4.1
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ORCHESTRATOR
+# ─────────────────────────────────────────────────────────────────────────────
+orchestrator:
+  id: product-director
+  display_name: "Orchestrator Agent — Product Director"
+  model:
+    preferred: pro              # Kapabilitas reasoning tinggi sesuai AGENTS.md §1.2.a
+    context_window: large
+  role: |
+    Menerima tugas berskala besar dari pengguna dan memecahnya menjadi sub-tugas
+    per modul sesuai PRD Bagian 4. Menentukan urutan eksekusi (sequential / parallel)
+    antar Worker Agent, mengagregasi hasil, dan memvalidasi konsistensi lintas modul
+    terhadap dokumen sumber sebelum melaporkan ke pengguna.
+    Tidak pernah menulis kode implementasi secara langsung.
+  context_sources:
+    # Global Context — dimuat ulang di awal setiap sesi/workflow baru (AGENTS.md §4.1)
+    - path: ".agents/AGENTS.md"
+      priority: 1
+    - path: ".agents/RULES.md"
+      priority: 1
+    - path: "docs/PRD_SIM_Layanan_Warga_RW047.md"
+      priority: 2
+    - path: "docs/SYSTEM_ARCHITECTURE.md"
+      priority: 2
+    - path: "docs/DATABASE_SCHEMA.md"
+      priority: 2
+    - path: "docs/API_SPECIFICATION.md"
+      priority: 2
+    - path: "docs/USER_STORIES.md"
+      priority: 2
+  scope_paths:
+    # Orchestrator hanya beroperasi di level konfigurasi dan dokumentasi;
+    # tidak menyentuh kode implementasi secara langsung.
+    - ".agents/"
+    - "docs/"
+  requires_human_confirmation_for: []   # Orchestrator mendelegasikan ke Worker; konfirmasi ada di level Worker
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WORKER AGENTS
+# ─────────────────────────────────────────────────────────────────────────────
+workers:
+
+  # ── Backend Worker ──────────────────────────────────────────────────────────
+  - id: backend-worker
+    display_name: "Backend Worker Agent"
+    model:
+      preferred: inherit
+    role: |
+      Mengimplementasikan endpoint REST API sesuai kontrak persis pada
+      API_SPECIFICATION.md (method, path, request/response schema, kode status).
+      Mengimplementasikan business logic di Service Layer sesuai layered architecture
+      (Controller → Service → Repository → Model). Menegakkan RBAC dan area scoping
+      sesuai peran yang didefinisikan di PRD dan SYSTEM_ARCHITECTURE.md.
+      Cakupan modul: Auth, User Management, Kependudukan, Persuratan,
+      Laporan & Aspirasi, Keuangan, Informasi Publik, Dashboard.
+    context_sources:
+      - path: ".agents/AGENTS.md"
+        priority: 1
+      - path: ".agents/RULES.md"
+        priority: 1
+      - path: "docs/API_SPECIFICATION.md"
+        priority: 2
+      - path: "docs/SYSTEM_ARCHITECTURE.md"
+        priority: 2
+      - path: "docs/DATABASE_SCHEMA.md"
+        priority: 3
+      - path: "docs/USER_STORIES.md"
+        priority: 3
+    scope_paths:
+      - "app/Modules/"
+      - "app/Models/"
+      - "app/Jobs/"
+      - "app/Support/"
+      - "app/Traits/"
+      - "routes/"
+      - "config/"
+      - ".agents/tools/handlers/"
+    explicitly_excluded_paths:
+      - "database/migrations/"   # Hanya Database Worker yang boleh menyentuh migration
+      - "tests/"                 # QA Worker menulis test
+      - "resources/"             # Frontend Worker menangani view
+    requires_human_confirmation_for:
+      # Dari AGENTS.md §3.1 — relevan untuk Backend Worker
+      - action: create_user
+        reason: "Pembuatan akun pengguna bersifat sensitif dan permanen"
+      - action: patch_user_status
+        reason: "Menonaktifkan/mengaktifkan akun adalah aksi ireversibel pada akses pengguna"
+      - action: verify_pengajuan_surat_final
+        reason: "Menyetujui pengajuan surat pada tahap RW_REVIEW mengubah status resmi dokumen kependudukan"
+      - action: approve_catatan_iuran
+        reason: "Transaksi keuangan yang sudah disetujui bersifat final dan tidak mudah dibatalkan"
+      - action: modify_final_data
+        reason: "Mengubah/menghapus data yang sudah berstatus final (surat COMPLETED, laporan CLOSED)"
+
+  # ── Database Worker ──────────────────────────────────────────────────────────
+  - id: database-worker
+    display_name: "Database Worker Agent"
+    model:
+      preferred: inherit
+    role: |
+      Membuat dan memelihara Laravel Migration sesuai struktur tabel pada
+      DATABASE_SCHEMA.md — termasuk tipe data, constraint, dan indeks.
+      Membuat Seeder untuk data awal (RoleSeeder, PermissionSeeder, IuranTypeSeeder, dsb.).
+      Memvalidasi bahwa setiap perubahan skema tidak melanggar prinsip enkripsi
+      kolom sensitif (NIK/No. KK selalu disertai kolom hash pendamping).
+      Setiap migration wajib reversible (memiliki method down() yang valid).
+    context_sources:
+      - path: ".agents/AGENTS.md"
+        priority: 1
+      - path: ".agents/RULES.md"
+        priority: 1
+      - path: "docs/DATABASE_SCHEMA.md"
+        priority: 2
+      - path: "docs/SYSTEM_ARCHITECTURE.md"
+        priority: 2
+    scope_paths:
+      - "database/migrations/"
+      - "database/seeders/"
+      - "database/factories/"
+      - "app/Models/"
+    explicitly_excluded_paths:
+      - "app/Modules/"   # Backend Worker yang mengimplementasikan logika bisnis
+      - "tests/"
+    requires_human_confirmation_for:
+      # Dari AGENTS.md §3.1 — relevan untuk Database Worker
+      - action: run_migration_non_local
+        reason: "Menjalankan migration di luar environment local dapat merusak data production/staging"
+      - action: run_seeder_non_local
+        reason: "DemoDataSeeder dilarang dijalankan di staging/production; seeder lain pun perlu konfirmasi eksplisit"
+    hard_prohibitions:
+      - "migrate:fresh di environment selain local"
+      - "DROP TABLE tanpa konfirmasi eksplisit manusia"
+      - "Hard-delete pada entitas yang menerapkan SoftDeletes"
+
+  # ── Frontend Worker ──────────────────────────────────────────────────────────
+  - id: frontend-worker
+    display_name: "Frontend Worker Agent"
+    model:
+      preferred: inherit
+    role: |
+      Mengimplementasikan halaman dan komponen UI sesuai USER_STORIES.md (User Workflows)
+      dan mengikuti spesifikasi visual pada UI_UX_SPECIFICATION.md.
+      Mengonsumsi endpoint Backend sesuai kontrak API_SPECIFICATION.md — tidak membuat
+      asumsi struktur response sendiri.
+      Mengimplementasikan state loading, error, dan empty sesuai Acceptance Criteria
+      (status ribbon, toast notification, skeleton screen).
+    context_sources:
+      - path: ".agents/AGENTS.md"
+        priority: 1
+      - path: ".agents/RULES.md"
+        priority: 1
+      - path: "docs/USER_STORIES.md"
+        priority: 2
+      - path: "docs/API_SPECIFICATION.md"
+        priority: 2
+      - path: "docs/UI_UX_SPECIFICATION.md"
+        priority: 2
+    scope_paths:
+      - "resources/views/"
+      - "resources/js/"
+      - "resources/css/"
+      - "public/"
+    explicitly_excluded_paths:
+      - "app/"
+      - "database/"
+      - "tests/"
+    requires_human_confirmation_for: []
+    hard_prohibitions:
+      - "Menyimpan token/NIK/KK di localStorage/sessionStorage tanpa enkripsi tambahan"
+      - "Menonaktifkan validasi backend dengan alasan sudah divalidasi di frontend"
+
+  # ── QA Worker ───────────────────────────────────────────────────────────────
+  - id: qa-worker
+    display_name: "QA/Test Worker Agent"
+    model:
+      preferred: inherit
+    role: |
+      Menulis Feature Test dan Unit Test yang menerjemahkan langsung Acceptance Criteria
+      (format Given-When-Then) pada USER_STORIES.md menjadi test case otomatis.
+      Menjalankan test suite (php artisan test) dan linting (pint, npm run lint)
+      setelah Backend/Frontend Worker selesai, sebelum tugas dilaporkan ke Orchestrator.
+      Memvalidasi bahwa Edge Cases pada USER_STORIES.md Bagian 3 memiliki test coverage,
+      bukan hanya happy path.
+      Tidak boleh menandai tugas selesai jika ada test yang gagal.
+    context_sources:
+      - path: ".agents/AGENTS.md"
+        priority: 1
+      - path: ".agents/RULES.md"
+        priority: 1
+      - path: "docs/USER_STORIES.md"
+        priority: 2
+      - path: "docs/API_SPECIFICATION.md"
+        priority: 2
+      - path: "docs/DATABASE_SCHEMA.md"
+        priority: 3
+    scope_paths:
+      - "tests/"
+      - "phpunit.xml"
+      - ".agents/workflows/qa.workflow.yaml"
+    explicitly_excluded_paths:
+      - "app/"
+      - "database/"
+      - "resources/"
+    requires_human_confirmation_for: []
+
+  # ── DevOps Worker ────────────────────────────────────────────────────────────
+  - id: devops-worker
+    display_name: "DevOps Worker Agent"
+    model:
+      preferred: inherit
+    role: |
+      Mengelola konfigurasi Docker Compose, CI/CD pipeline, dan environment variable
+      sesuai DEVELOPMENT_SETUP.md dan SYSTEM_ARCHITECTURE.md Bagian 5.
+      Memvalidasi environment checklist sebelum deployment
+      (APP_DEBUG=false di production, secret manager untuk kunci enkripsi, dsb.).
+      Tidak boleh melakukan deploy ke Production tanpa konfirmasi eksplisit manusia.
+    context_sources:
+      - path: ".agents/AGENTS.md"
+        priority: 1
+      - path: ".agents/RULES.md"
+        priority: 1
+      - path: "docs/DEVELOPMENT_SETUP.md"
+        priority: 2
+      - path: "docs/SYSTEM_ARCHITECTURE.md"
+        priority: 2
+    scope_paths:
+      - ".agents/"
+      - "docker/"
+      - "docker-compose.yml"
+      - "docker-compose.override.yml"
+      - ".github/"
+      - ".env.example"
+      - "Makefile"
+    explicitly_excluded_paths:
+      - "app/"
+      - "database/"
+      - "resources/"
+      - "tests/"
+    requires_human_confirmation_for:
+      # Dari AGENTS.md §3.1 — relevan untuk DevOps Worker
+      - action: deploy_staging
+        reason: "Deployment ke Staging dapat mempengaruhi lingkungan pengujian bersama"
+      - action: deploy_production
+        reason: "Deployment ke Production adalah aksi ireversibel — WAJIB konfirmasi eksplisit manusia"
+      - action: git_push_main
+        reason: "Push ke branch main mempengaruhi seluruh alur CI/CD dan versi production"
+      - action: run_migration_non_local
+        reason: "Migration di environment selain local berpotensi merusak data"
+    hard_prohibitions:
+      - "git push --force ke branch main atau develop"
+      - "deploy langsung ke production tanpa konfirmasi manusia"
+      - "docker_compose_exec terhadap container yang terhubung ke database production"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# TOOL EXECUTION AGENT (Sandboxed Runner)
+# ─────────────────────────────────────────────────────────────────────────────
+tool_execution_agent:
+  id: tool-execution-agent
+  display_name: "Tool Execution Agent (Sandboxed Runner)"
+  role: |
+    Lapisan tunggal yang mengeksekusi pemanggilan tool/API/perintah shell atas nama
+    Worker Agent manapun. Memberi titik kontrol terpusat untuk logging dan guardrail.
+    Mencatat setiap tool call (nama tool, parameter, hasil, timestamp) ke execution log.
+    Dijalankan dalam sandbox; tidak memiliki kemampuan reasoning — murni eksekutor
+    perintah yang sudah divalidasi Worker Agent pemanggil.
+  logging:
+    output_dir: ".agents/logs/execution/"
+    format: "jsonl"           # JSON Lines, satu baris per tool call
+    fields:
+      - tool_name
+      - caller_agent_id
+      - parameters_hash     # Hash parameter (bukan plaintext) jika mengandung data sensitif
+      - result_status
+      - timestamp_utc
+      - duration_ms
+  sandbox: true
+  can_reason: false
