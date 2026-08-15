@@ -277,4 +277,63 @@ class WebAuthTest extends TestCase
             'action' => 'LOGOUT',
         ]);
     }
+
+    /**
+     * Cookie sesi memiliki atribut HttpOnly dan SameSite (Lax).
+     */
+    public function test_session_cookie_attributes_are_httponly_and_samesite(): void
+    {
+        $role = Role::where('name', 'WARGA')->firstOrFail();
+        User::factory()->create([
+            'role_id' => $role->id,
+            'email' => 'cookie_check@rw047.id',
+            'password' => Hash::make('Password123!'),
+            'status' => 'ACTIVE',
+        ]);
+
+        $response = $this->post('/login', [
+            'email' => 'cookie_check@rw047.id',
+            'password' => 'Password123!',
+        ]);
+
+        $sessionCookieName = config('session.cookie');
+        $sessionCookie = null;
+
+        foreach ($response->headers->getCookies() as $cookie) {
+            if ($cookie->getName() === $sessionCookieName) {
+                $sessionCookie = $cookie;
+                break;
+            }
+        }
+
+        $this->assertNotNull($sessionCookie, "Session cookie {$sessionCookieName} must be present in response");
+        $this->assertTrue($sessionCookie->isHttpOnly(), 'Session cookie must be HttpOnly to prevent XSS access');
+        $this->assertEquals('lax', strtolower((string) $sessionCookie->getSameSite()), 'Session cookie SameSite must be Lax');
+    }
+
+    /**
+     * Sesi yang didapat saat login dapat digunakan untuk mengakses dashboard.
+     */
+    public function test_session_allows_access_to_dashboard(): void
+    {
+        $role = Role::where('name', 'WARGA')->firstOrFail();
+        $user = User::factory()->create([
+            'role_id' => $role->id,
+            'email' => 'session_dash@rw047.id',
+            'password' => Hash::make('Password123!'),
+            'status' => 'ACTIVE',
+        ]);
+
+        $loginResponse = $this->post('/login', [
+            'email' => 'session_dash@rw047.id',
+            'password' => 'Password123!',
+        ]);
+
+        $loginResponse->assertRedirect('/dashboard');
+
+        // Request ke dashboard dengan sesi aktif
+        $dashboardResponse = $this->get('/dashboard');
+        $dashboardResponse->assertStatus(200);
+        $dashboardResponse->assertSee($user->full_name);
+    }
 }
