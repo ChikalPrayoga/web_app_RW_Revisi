@@ -119,45 +119,35 @@ flowchart TB
     C3 -->|opsional| D3
 ```
 
-### 2.2 Alur Data: Contoh Kasus "Warga Mengirim Laporan/Aspirasi"
+### 2.2 Alur Data: Contoh Kasus "Submit & Tracking Laporan Warga"
 
-Alur ini mendemonstrasikan interaksi Frontend → Backend → Database → Layanan AI, mengikuti proses bisnis yang dimodelkan pada Sequence Diagram skripsi acuan, dengan penambahan langkah klasifikasi asinkron.
+> **Catatan Penyelarasan Scope Final:** Diagram asinkron dengan integrasi eksternal AI di bawah ini berstatus **HISTORICAL / OUT-OF-SCOPE v1** (mengacu `PROJECT_SCOPE_BOUNDARIES.md`). Pada implementasi v1 yang aktif, laporan langsung tersimpan dengan status `SUBMITTED` dan siap ditindaklanjuti langsung oleh pengurus (`SUBMITTED → IN_PROGRESS → RESOLVED → CLOSED`) tanpa dependensi layanan pihak ketiga atau queue AI.
 
 ```mermaid
 sequenceDiagram
-    participant W as Warga (Browser)
-    participant N as Nginx
+    autonumber
+    actor W as Warga (Pelapor)
+    participant N as Nginx / TLS
     participant Ctrl as LaporanController
     participant Svc as LaporanAspirasiService
     participant Pol as Policy (RBAC)
-    participant DB as Database (PostgreSQL)
-    participant Q as Queue (Redis)
-    participant AI as AI Classification Service
+    participant DB as Database (MySQL)
 
-    W->>N: POST /laporan-aspirasi (judul_laporan, teks_keluhan, lokasi_kejadian)
+    W->>N: POST /laporan-aspirasi (judul_laporan, teks_keluhan, lokasi_kejadian, nik)
     N->>Ctrl: forward request (TLS terminated)
-    Ctrl->>Pol: authorize("create", Laporan)
-    Pol-->>Ctrl: allowed
-    Ctrl->>Svc: createLaporan(payload)
-    Svc->>Svc: sanitize input, generate ticket_number
-    Svc->>DB: INSERT laporan_aspirasi (status=SUBMITTED)
+    Ctrl->>Svc: submitLaporan(payload)
+    Svc->>Svc: sanitize input, resolve warga_id, generate ticket_number
+    Svc->>DB: INSERT laporan_aspirasis (status=SUBMITTED)
     DB-->>Svc: laporan_id
-    Svc->>Q: dispatch(ClassifyLaporanJob, laporan_id)
     Svc-->>Ctrl: laporan tersimpan (ticket_number)
     Ctrl-->>W: 201 Created + ticket_number
-
-    Note over Q,AI: Diproses asinkron (background job)
-    Q->>AI: request klasifikasi (teks_keluhan)
-    AI-->>Q: kategori + skor prioritas
-    Q->>DB: UPDATE laporan SET status=CLASSIFIED, kategori=...
-    Q->>DB: catat audit log
 
     Note over W: Warga cek status kapan saja
     W->>N: GET /laporan-aspirasi/track/{ticket_number}
     N->>Ctrl: forward
     Ctrl->>DB: SELECT status by ticket_number
-    DB-->>Ctrl: status terkini
-    Ctrl-->>W: tampilkan status
+    DB-->>Ctrl: status terkini (SUBMITTED / IN_PROGRESS / RESOLVED / CLOSED)
+    Ctrl-->>W: 200 OK (tampilkan status & tindak lanjut)
 ```
 
 **Poin penting desain:**
@@ -203,8 +193,8 @@ sequenceDiagram
 
 | Aspek | Spesifikasi |
 |---|---|
-| **Framework** | Laravel (versi LTS terbaru) |
-| **Bahasa** | PHP 8.2+ |
+| **Framework** | Laravel 10 (versi LTS) |
+| **Bahasa** | PHP 8.1+ (Baseline Composer `^8.1`) |
 | **Pola** | Modular Monolith, Layered Architecture (Controller → Service → Repository → Model) |
 | **Peran utama** | Menjalankan seluruh business logic: validasi, RBAC enforcement, orkestrasi transaksi antar-modul, penjadwalan job asinkron |
 | **API** | REST API (Laravel API Resource) sebagai kontrak utama, dikonsumsi baik oleh Blade/Livewire frontend maupun (di masa depan) aplikasi mobile/PWA |
@@ -282,7 +272,7 @@ Dipertahankan dan diperkuat dari sistem acuan:
 | **NIK, No. KK** | Enkripsi **AES-256-CBC** di application layer (Laravel Crypt) sebelum disimpan — database tidak pernah menyimpan plaintext |
 | **Pencarian data terenkripsi** | Hash deterministik **HMAC-SHA256** disimpan sebagai kolom terpisah (mis. `nik_hash`) untuk exact-match lookup tanpa membuka nilai asli |
 | **Key management** | Encryption key **tidak** disimpan hardcoded di `.env` produksi — direkomendasikan menggunakan secret manager (AWS Secrets Manager/HashiCorp Vault/setara) dengan rotasi key berkala |
-| **Data di UI** | Nomor NIK/KK ditampilkan masked (mis. `3xxxxxxxxxxxxx01`) secara default; hanya role tertentu (Super Admin/Sekretaris RW) yang dapat melihat data unmasked, dan setiap akses unmasked dicatat di audit log |
+| **Data di UI** | Nomor NIK/KK ditampilkan masked (mis. `3216xxxxxxxx0012` — first 4 + 8 'x' + last 4) secara default; hanya role tertentu (Super Admin/Sekretaris RW) yang dapat melihat data unmasked, dan setiap akses unmasked dicatat di audit log |
 | **Input sanitization** | Semua input teks bebas (deskripsi laporan, keperluan surat) disanitasi untuk mencegah XSS/SQL Injection (Laravel Eloquent ORM + escaping Blade sudah menangani sebagian besar, tetap perlu validasi eksplisit) |
 
 ### 4.5 Audit Trail

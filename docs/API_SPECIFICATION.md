@@ -171,7 +171,7 @@ Endpoint `POST /auth/login` dibatasi **maksimal 5 percobaan per menit per kombin
 | Kependudukan | `/kartu-keluarga`, `/warga` | Data KK dan data warga |
 | Persuratan | `/surat/pengajuan` | Pengajuan & verifikasi surat |
 | Laporan & Aspirasi | `/laporan-aspirasi` | Pengaduan warga & klasifikasi AI |
-| Keuangan | `/iuran-types`, `/catatan-iuran` | Jenis iuran & transaksi pembayaran |
+| Keuangan | `/iuran-types`, `/catatan-iuran`, `/kas-keluar`, `/keuangan` | Jenis iuran, pencatatan iuran, kas keluar & rekapitulasi keuangan |
 | Informasi Publik | `/informasi-publik` | Pengumuman, berita, agenda |
 | Dashboard | `/dashboard` | Statistik & monitoring per peran |
 
@@ -557,7 +557,7 @@ Authorization: Bearer {access_token}
 
 #### 3.3.3 `POST /warga`
 
-**Deskripsi:** Menambahkan data warga baru ke dalam suatu Kartu Keluarga. Data tersimpan berstatus `MENUNGGU_VERIFIKASI` hingga disetujui Sekretaris RW (lihat 3.3.6).
+**Deskripsi:** Menambahkan data warga baru ke dalam suatu Kartu Keluarga. Data tersimpan berstatus `MENUNGGU_VERIFIKASI` hingga disetujui Sekretaris RW (lihat 3.3.7).
 **Akses:** `KETUA_RT`, `SEKRETARIS_RW`.
 
 **Request Body:**
@@ -603,12 +603,79 @@ Authorization: Bearer {access_token}
 
 ---
 
-#### 3.3.4 `GET /warga/{nik_hash}`
+#### 3.3.4 `GET /warga`
+
+**Deskripsi:** Mengambil daftar data warga terdaftar dengan filter wilayah, status verifikasi, status domisili, dan pencarian nama. Area-scoped untuk role `KETUA_RT`.
+**Akses:** `KETUA_RT` (lingkup RT sendiri, otomatis dipaksa dari identitas user), `SEKRETARIS_RW`, `KETUA_RW`, `SUPER_ADMIN` (seluruh RT).
+
+**Header:**
+```
+Authorization: Bearer {access_token}
+```
+
+**Query Parameters:**
+| Parameter | Tipe | Deskripsi |
+|---|---|---|
+| `rt_code` | string | Filter wilayah RT (otomatis dipaksa ke RT milik user untuk role `KETUA_RT`, diabaikan bila dikirim berbeda oleh client) |
+| `no_kk_hash` | string | Filter seluruh anggota keluarga dalam satu Kartu Keluarga tertentu berdasarkan hash No. KK |
+| `search` | string | Pencarian berdasarkan nama lengkap warga (`ILIKE %search%`) |
+| `verification_status` | string | Filter status verifikasi (`MENUNGGU_VERIFIKASI`, `TERVERIFIKASI`, `DITOLAK`) |
+| `status_warga` | string | Filter status domisili (`TETAP`, `KONTRAK`, `PINDAH`, `MENINGGAL`) |
+| `page`, `per_page` | integer | Pagination standar (default: `page=1`, `per_page=15`, max `per_page=100`) |
+
+**Success Response — `200 OK`:**
+```json
+{
+  "success": true,
+  "message": "Daftar warga berhasil diambil",
+  "data": [
+    {
+      "nik_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "nik_masked": "3216xxxxxxxx0021",
+      "nama_lengkap": "Ahmad Fauzi",
+      "jenis_kelamin": "L",
+      "tanggal_lahir": "1990-05-15",
+      "pekerjaan": "Wiraswasta",
+      "status_hubungan_keluarga": "Kepala Keluarga",
+      "status_warga": "TETAP",
+      "verification_status": "MENUNGGU_VERIFIKASI",
+      "no_kk_masked": "3216xxxxxxxx0012",
+      "rt_code": "001"
+    }
+  ],
+  "meta": {
+    "current_page": 1,
+    "per_page": 15,
+    "total": 120,
+    "last_page": 8
+  }
+}
+```
+
+**Error Response — `401 Unauthorized`:**
+```json
+{
+  "success": false,
+  "message": "Unauthenticated"
+}
+```
+
+**Error Response — `403 Forbidden`:**
+```json
+{
+  "success": false,
+  "message": "Anda tidak memiliki hak akses untuk melihat data warga"
+}
+```
+
+---
+
+#### 3.3.5 `GET /warga/{nik_hash}`
 
 **Deskripsi:** Mengambil detail satu data warga berdasarkan referensi hash NIK (bukan NIK plaintext, untuk menghindari NIK asli muncul pada URL/log server).
 **Akses:** `KETUA_RT` (lingkup RT sendiri), `SEKRETARIS_RW`, `KETUA_RW`, `SUPER_ADMIN`.
 
-**Path Parameter:** `nik_hash` — hash HMAC-SHA256 dari NIK (diperoleh dari response list warga)
+**Path Parameter:** `nik_hash` — hash HMAC-SHA256 dari NIK (diperoleh dari response list warga `GET /warga`)
 
 **Success Response — `200 OK`:**
 ```json
@@ -639,7 +706,7 @@ Authorization: Bearer {access_token}
 
 ---
 
-#### 3.3.5 `PATCH /warga/{nik_hash}`
+#### 3.3.6 `PATCH /warga/{nik_hash}`
 
 **Deskripsi:** Memperbarui data warga. Perubahan tertentu (mis. `status_warga`) memicu alur verifikasi Sekretaris RW sesuai proses bisnis pada dokumen skripsi.
 **Akses:** `KETUA_RT` (mengajukan perubahan), `SEKRETARIS_RW` (memverifikasi).
@@ -677,7 +744,7 @@ Authorization: Bearer {access_token}
 
 ---
 
-#### 3.3.6 `PATCH /warga/{nik_hash}/verify`
+#### 3.3.7 `PATCH /warga/{nik_hash}/verify`
 
 **Deskripsi:** Memverifikasi (menyetujui/menolak) data warga baru atau perubahan data warga yang berstatus `MENUNGGU_VERIFIKASI`.
 **Akses:** `SEKRETARIS_RW`.
@@ -724,12 +791,13 @@ Authorization: Bearer {access_token}
 
 #### 3.4.1 `POST /surat/pengajuan`
 
-**Deskripsi:** Mengajukan permohonan surat baru oleh warga.
-**Akses:** `WARGA`.
+**Deskripsi:** Mengajukan permohonan surat baru oleh warga melalui Portal Warga (Public Self-Service). Backend melakukan validasi format NIK, hash lookup ke data kependudukan terdaftar, dan mengaitkan pengajuan ke `warga_id`. NIK tidak disimpan plaintext dan tidak dikembalikan pada response.
+**Akses:** Publik (tidak memerlukan token autentikasi).
 
 **Request Body:**
 ```json
 {
+  "nik": "3216011505900021",
   "jenis_surat": "SURAT_PENGANTAR",
   "keperluan": "Pengurusan administrasi pembuatan KTP baru"
 }
@@ -756,6 +824,7 @@ Authorization: Bearer {access_token}
   "success": false,
   "message": "Data yang dikirim tidak valid",
   "errors": {
+    "nik": ["NIK tidak terdaftar dalam data kependudukan RW 047"],
     "jenis_surat": ["Jenis surat yang dipilih tidak valid"],
     "keperluan": ["Kolom keperluan wajib diisi"]
   }
@@ -766,12 +835,12 @@ Authorization: Bearer {access_token}
 
 #### 3.4.2 `GET /surat/pengajuan/track/{tracking_code}`
 
-**Deskripsi:** Melacak status pengajuan surat menggunakan kode pelacakan publik — dapat diakses tanpa login penuh (khusus tracking_code milik sendiri).
+**Deskripsi:** Melacak status pengajuan surat menggunakan kode pelacakan publik — dapat diakses tanpa login (khusus tracking_code milik sendiri). Jika pengajuan ditolak (status `REJECTED`), field `catatan_penolakan` disertakan untuk menginformasikan alasan kepada warga.
 **Akses:** Publik (memerlukan `tracking_code` yang valid sebagai bentuk verifikasi kepemilikan).
 
 **Path Parameter:** `tracking_code` — string
 
-**Success Response — `200 OK`:**
+**Success Response — `200 OK` (Contoh status Berjalan):**
 ```json
 {
   "success": true,
@@ -781,11 +850,24 @@ Authorization: Bearer {access_token}
     "jenis_surat": "SURAT_PENGANTAR",
     "current_status": "RT_REVIEW",
     "nomor_surat": null,
-    "tanggal_pengajuan": "2026-08-12T09:45:00Z",
-    "riwayat_status": [
-      { "status": "SUBMITTED", "timestamp": "2026-08-12T09:45:00Z" },
-      { "status": "RT_REVIEW", "timestamp": "2026-08-12T10:00:00Z" }
-    ]
+    "catatan_penolakan": null,
+    "tanggal_pengajuan": "2026-08-12T09:45:00Z"
+  }
+}
+```
+
+**Success Response — `200 OK` (Contoh status Ditolak):**
+```json
+{
+  "success": true,
+  "message": "Status pengajuan berhasil diambil",
+  "data": {
+    "tracking_code": "SRT-20260812-A8F3K2",
+    "jenis_surat": "SURAT_PENGANTAR",
+    "current_status": "REJECTED",
+    "nomor_surat": null,
+    "catatan_penolakan": "Dokumen pendukung tidak lengkap, mohon koordinasi dengan Ketua RT 001",
+    "tanggal_pengajuan": "2026-08-12T09:45:00Z"
   }
 }
 ```
@@ -894,17 +976,20 @@ Idempotency-Key: 8f14e45f-ceea-4b3d-8e21-1c9a5b6e0a11
 
 ### 3.5 Modul: Laporan & Aspirasi
 
+> **Catatan Penyelarasan Scope Final:** Sesuai `PROJECT_SCOPE_BOUNDARIES.md` dan keputusan final proyek, fitur klasifikasi AI/NLP/Gemini/n8n berada di luar cakupan (Out-of-Scope). State machine final yang berlaku adalah `SUBMITTED → IN_PROGRESS → RESOLVED → CLOSED` (tanpa status `CLASSIFIED`). Field `kategori_ai` dan `skor_prioritas_ai` berstatus obsolete/tidak aktif pada implementasi v1.
+
 #### 3.5.1 `POST /laporan-aspirasi`
 
-**Deskripsi:** Mengirim laporan/aspirasi baru dari warga. Setelah tersimpan, sistem menjadwalkan job klasifikasi AI secara asinkron (lihat `SYSTEM_ARCHITECTURE.md` Bagian 2.2).
-**Akses:** `WARGA`.
+**Deskripsi:** Mengirim laporan/aspirasi baru dari warga (publik). Laporan tersimpan dengan status awal `SUBMITTED`.
+**Akses:** Publik (`WARGA` / Guest).
 
 **Request Body:**
 ```json
 {
   "judul_laporan": "Lampu jalan mati di Blok C",
   "teks_keluhan": "Lampu penerangan jalan di depan rumah nomor 12 sudah mati sejak 3 hari terakhir, mohon segera diperbaiki.",
-  "lokasi_kejadian": "Jl. Mawar Blok C, depan rumah No. 12"
+  "lokasi_kejadian": "Jl. Mawar Blok C, depan rumah No. 12",
+  "nik": "3216000000000001"
 }
 ```
 
@@ -915,9 +1000,9 @@ Idempotency-Key: 8f14e45f-ceea-4b3d-8e21-1c9a5b6e0a11
   "message": "Laporan berhasil dikirim dan sedang diproses",
   "data": {
     "aspirasi_id": 88,
-    "ticket_number": "LPR2026081200088",
+    "ticket_number": "LPR-20260818-00001",
     "current_status": "SUBMITTED",
-    "submitted_at": "2026-08-12T11:00:00Z"
+    "submitted_at": "2026-08-18T11:00:00Z"
   }
 }
 ```
@@ -938,7 +1023,7 @@ Idempotency-Key: 8f14e45f-ceea-4b3d-8e21-1c9a5b6e0a11
 
 #### 3.5.2 `GET /laporan-aspirasi/track/{ticket_number}`
 
-**Deskripsi:** Melacak status penanganan laporan menggunakan nomor tiket.
+**Deskripsi:** Melacak status penanganan laporan menggunakan nomor tiket (akses publik).
 **Akses:** Publik (memerlukan `ticket_number` yang valid).
 
 **Success Response — `200 OK`:**
@@ -947,11 +1032,11 @@ Idempotency-Key: 8f14e45f-ceea-4b3d-8e21-1c9a5b6e0a11
   "success": true,
   "message": "Status laporan berhasil diambil",
   "data": {
-    "ticket_number": "LPR2026081200088",
+    "ticket_number": "LPR-20260818-00001",
     "judul_laporan": "Lampu jalan mati di Blok C",
-    "current_status": "CLASSIFIED",
-    "kategori_ai": "Infrastruktur",
-    "submitted_at": "2026-08-12T11:00:00Z",
+    "current_status": "IN_PROGRESS",
+    "catatan_tindak_lanjut": "Sedang dikoordinasikan dengan petugas penerangan jalan RW",
+    "submitted_at": "2026-08-18T11:00:00Z",
     "resolved_at": null
   }
 }
@@ -969,15 +1054,14 @@ Idempotency-Key: 8f14e45f-ceea-4b3d-8e21-1c9a5b6e0a11
 
 #### 3.5.3 `GET /laporan-aspirasi`
 
-**Deskripsi:** Mengambil daftar laporan/aspirasi untuk keperluan pemantauan pengurus, dapat difilter berdasarkan kategori hasil klasifikasi AI.
+**Deskripsi:** Mengambil daftar laporan/aspirasi untuk keperluan pemantauan pengurus.
 **Akses:** `KETUA_RT`, `SEKRETARIS_RW`, `KETUA_RW`, `SUPER_ADMIN`.
 
 **Query Parameters:**
 | Parameter | Tipe | Deskripsi |
 |---|---|---|
-| `current_status` | string | Filter status penanganan |
-| `kategori_ai` | string | Filter berdasarkan kategori hasil klasifikasi AI |
-| `sort_by` | string | `submitted_at` (default) atau `skor_prioritas_ai` |
+| `current_status` | string | Filter status penanganan (`SUBMITTED`, `IN_PROGRESS`, `RESOLVED`, `CLOSED`) |
+| `sort_by` | string | `submitted_at` (default) |
 | `page`, `per_page` | integer | Pagination standar |
 
 **Success Response — `200 OK`:**
@@ -988,12 +1072,10 @@ Idempotency-Key: 8f14e45f-ceea-4b3d-8e21-1c9a5b6e0a11
   "data": [
     {
       "aspirasi_id": 88,
-      "ticket_number": "LPR2026081200088",
+      "ticket_number": "LPR-20260818-00001",
       "judul_laporan": "Lampu jalan mati di Blok C",
-      "kategori_ai": "Infrastruktur",
-      "skor_prioritas_ai": 72.5,
-      "current_status": "CLASSIFIED",
-      "submitted_at": "2026-08-12T11:00:00Z"
+      "current_status": "SUBMITTED",
+      "submitted_at": "2026-08-18T11:00:00Z"
     }
   ],
   "meta": {
@@ -1084,7 +1166,7 @@ Idempotency-Key: 8f14e45f-ceea-4b3d-8e21-1c9a5b6e0a11
 
 #### 3.6.2 `POST /catatan-iuran`
 
-**Deskripsi:** Mencatat transaksi pembayaran iuran warga oleh Ketua RT.
+**Deskripsi:** Mencatat transaksi pembayaran iuran warga oleh Ketua RT. Parameter input `no_kk` (16 digit plaintext) diterima via request body, di-lookup oleh Service menggunakan hash deterministik HMAC-SHA256 ke `kartu_keluargas.no_kk_hash` untuk mendapatkan `kartu_keluarga_id` (FK internal), memverifikasi kesesuaian wilayah RT pemohon (`$kk->rt_code === $user->rt_code`), dan menyimpan `kartu_keluarga_id` pada `catatan_iurans`. Response mengembalikan `no_kk_masked` (`3216xxxxxxxx0012`).
 **Akses:** `KETUA_RT`.
 
 **Request Body:**
@@ -1176,7 +1258,7 @@ Idempotency-Key: 8f14e45f-ceea-4b3d-8e21-1c9a5b6e0a11
 
 #### 3.6.4 `GET /catatan-iuran/rekapitulasi`
 
-**Deskripsi:** Mengambil rekapitulasi laporan keuangan iuran per periode/RT.
+**Deskripsi:** Mengambil rekapitulasi laporan keuangan khusus iuran warga per periode/RT.
 **Akses:** `BENDAHARA_RW`, `KETUA_RW`, `SUPER_ADMIN`.
 
 **Query Parameters:**
@@ -1199,6 +1281,194 @@ Idempotency-Key: 8f14e45f-ceea-4b3d-8e21-1c9a5b6e0a11
     "rincian_per_jenis_iuran": [
       { "jenis_iuran": "Iuran Kebersihan & Keamanan", "total_nominal": 4000000.00 },
       { "jenis_iuran": "Kas RW", "total_nominal": 900000.00 }
+    ]
+  }
+}
+```
+
+---
+
+#### 3.6.5 `POST /kas-keluar`
+
+**Deskripsi:** Mencatat transaksi pengeluaran kas RW (kas keluar) oleh Bendahara RW. Transaksi tersimpan dengan status `PENDING` menunggu persetujuan Ketua RW (menegakkan dual-control).
+**Akses:** `BENDAHARA_RW`.
+
+**Request Body:**
+```json
+{
+  "kategori": "Kebersihan Lingkungan",
+  "keterangan": "Pembelian kantong sampah besar dan peralatan kerja bakti RW 047",
+  "nominal": 350000.00,
+  "tanggal_pengeluaran": "2026-08-15",
+  "bukti_path": "uploads/bukti/kuitansi-sampah-20260815.jpg"
+}
+```
+
+**Success Response — `201 Created`:**
+```json
+{
+  "success": true,
+  "message": "Pencatatan pengeluaran kas berhasil disimpan, menunggu persetujuan Ketua RW",
+  "data": {
+    "id": 101,
+    "kategori": "Kebersihan Lingkungan",
+    "keterangan": "Pembelian kantong sampah besar dan peralatan kerja bakti RW 047",
+    "nominal": 350000.00,
+    "tanggal_pengeluaran": "2026-08-15",
+    "status": "PENDING",
+    "recorded_by": "Andi Wijaya (Bendahara RW)"
+  }
+}
+```
+
+**Error Response — `422 Unprocessable Entity`:**
+```json
+{
+  "success": false,
+  "message": "Data yang dikirim tidak valid",
+  "errors": {
+    "nominal": ["Nominal pengeluaran harus lebih besar dari 0"],
+    "keterangan": ["Keterangan pengeluaran wajib diisi minimal 10 karakter"]
+  }
+}
+```
+
+---
+
+#### 3.6.6 `GET /kas-keluar`
+
+**Deskripsi:** Mengambil daftar transaksi pengeluaran kas RW dengan filter status, kategori, dan periode.
+**Akses:** `BENDAHARA_RW`, `KETUA_RW`, `SUPER_ADMIN`.
+
+**Query Parameters:**
+| Parameter | Tipe | Wajib | Deskripsi |
+|---|---|---|---|
+| `status` | string | Tidak | Filter status (`PENDING`, `APPROVED`, `REJECTED`) |
+| `kategori` | string | Tidak | Filter berdasarkan nama kategori pengeluaran |
+| `periode_bulan` | integer | Tidak | Filter bulan pengeluaran (1–12) |
+| `periode_tahun` | integer | Tidak | Filter tahun pengeluaran |
+| `page` | integer | Tidak | Nomor halaman paginasi (default: 1) |
+| `per_page` | integer | Tidak | Jumlah data per halaman (default: 15) |
+
+**Success Response — `200 OK`:**
+```json
+{
+  "success": true,
+  "message": "Daftar pengeluaran kas berhasil diambil",
+  "data": [
+    {
+      "id": 101,
+      "kategori": "Kebersihan Lingkungan",
+      "keterangan": "Pembelian kantong sampah besar dan peralatan kerja bakti RW 047",
+      "nominal": 350000.00,
+      "tanggal_pengeluaran": "2026-08-15",
+      "bukti_path": "uploads/bukti/kuitansi-sampah-20260815.jpg",
+      "status": "APPROVED",
+      "recorded_by": "Andi Wijaya",
+      "approved_by": "Bambang Soediro",
+      "approved_at": "2026-08-16T10:00:00Z"
+    }
+  ],
+  "meta": {
+    "current_page": 1,
+    "total": 1,
+    "per_page": 15
+  }
+}
+```
+
+---
+
+#### 3.6.7 `PATCH /kas-keluar/{id}/approve`
+
+**Deskripsi:** Menyetujui atau menolak pengajuan pengeluaran kas RW oleh Ketua RW.
+**Akses:** `KETUA_RW`.
+
+**Path Parameter:** `id` — ID kas keluar (integer)
+
+**Request Body (menyetujui):**
+```json
+{
+  "action": "APPROVE"
+}
+```
+
+**Request Body (menolak):**
+```json
+{
+  "action": "REJECT",
+  "rejection_notes": "Pengeluaran ini belum dikoordinasikan dalam rapat pengurus RW"
+}
+```
+
+**Success Response — `200 OK`:**
+```json
+{
+  "success": true,
+  "message": "Transaksi pengeluaran kas berhasil disetujui",
+  "data": {
+    "id": 101,
+    "status": "APPROVED",
+    "approved_by": "Bambang Soediro (Ketua RW)",
+    "approved_at": "2026-08-16T10:00:00Z"
+  }
+}
+```
+
+**Error Response — `422 Unprocessable Entity`:**
+```json
+{
+  "success": false,
+  "message": "Data yang dikirim tidak valid",
+  "errors": {
+    "rejection_notes": ["Alasan penolakan wajib diisi ketika aksi REJECT"]
+  }
+}
+```
+
+---
+
+#### 3.6.8 `GET /keuangan/rekapitulasi`
+
+**Deskripsi:** Mengambil rekapitulasi keuangan gabungan (total pemasukan iuran `APPROVED`, total pengeluaran kas keluar `APPROVED`, saldo akhir, serta rincian per pos anggaran) untuk periode tertentu.
+**Akses:** `BENDAHARA_RW`, `KETUA_RW`, `SUPER_ADMIN`.
+
+**Query Parameters:**
+| Parameter | Tipe | Wajib | Deskripsi |
+|---|---|---|---|
+| `periode_bulan` | integer | Ya | Bulan periode (1–12) |
+| `periode_tahun` | integer | Ya | Tahun periode (mis. 2026) |
+
+**Success Response — `200 OK`:**
+```json
+{
+  "success": true,
+  "message": "Rekapitulasi keuangan gabungan berhasil diambil",
+  "data": {
+    "periode": "2026-08",
+    "total_pemasukan": 4900000.00,
+    "total_pengeluaran": 350000.00,
+    "saldo_akhir": 4550000.00,
+    "rincian_pemasukan_iuran": [
+      {
+        "jenis_iuran": "Iuran Kebersihan & Keamanan",
+        "code": "IKK",
+        "total_nominal": 4000000.00,
+        "jumlah_transaksi": 80
+      },
+      {
+        "jenis_iuran": "Kas RW",
+        "code": "KAS-RW",
+        "total_nominal": 900000.00,
+        "jumlah_transaksi": 36
+      }
+    ],
+    "rincian_pengeluaran_kas": [
+      {
+        "kategori": "Kebersihan Lingkungan",
+        "total_nominal": 350000.00,
+        "jumlah_transaksi": 1
+      }
     ]
   }
 }
@@ -1303,10 +1573,10 @@ Idempotency-Key: 8f14e45f-ceea-4b3d-8e21-1c9a5b6e0a11
     "total_kk": 128,
     "surat_menunggu_verifikasi": 6,
     "laporan_aktif": 14,
-    "laporan_berdasarkan_kategori_ai": {
-      "Infrastruktur": 5,
-      "Keamanan": 3,
-      "Kebersihan": 6
+    "laporan_berdasarkan_status": {
+      "SUBMITTED": 5,
+      "IN_PROGRESS": 3,
+      "RESOLVED": 6
     },
     "total_iuran_bulan_ini": 4900000.00,
     "kepatuhan_iuran_persen": 81.6

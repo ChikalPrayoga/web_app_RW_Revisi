@@ -124,30 +124,25 @@ Cerita pengguna dikelompokkan berdasarkan modul fungsional (sesuai PRD Bagian 4)
 
 ---
 
-#### US-LAP-02
-**Sebagai** sistem, **saya ingin** mengklasifikasikan kategori dan prioritas laporan warga secara otomatis menggunakan AI, **sehingga** pengurus dapat memprioritaskan penanganan tanpa harus membaca dan mengkategorikan setiap laporan secara manual.
+#### US-LAP-02 *(OBSOLETE / OUT-OF-SCOPE v1)*
+> **Catatan Penyelarasan Scope Final:** Fitur klasifikasi AI/NLP/Gemini/n8n berada di luar cakupan v1 (mengacu `PROJECT_SCOPE_BOUNDARIES.md`). User story ini berstatus historis/non-aktif pada implementasi v1.
 
-**Kriteria Penerimaan:**
-- [ ] **Given** laporan baru tersimpan dengan status `SUBMITTED`, **when** job klasifikasi berjalan di background, **then** status berubah menjadi `CLASSIFIED` beserta `kategoriAi` dan `skorPrioritasAi` terisi.
-- [ ] **Given** layanan AI eksternal gagal merespons/timeout, **when** job klasifikasi dijalankan, **then** laporan tetap berstatus `SUBMITTED` (tidak stuck error) dan job otomatis dijadwalkan ulang (retry).
-- [ ] **Given** klasifikasi AI gagal berulang kali melebihi batas retry, **when** batas tersebut tercapai, **then** laporan ditandai untuk klasifikasi manual oleh pengurus, bukan dibiarkan tanpa status.
+**Sebagai** sistem, **saya ingin** mengklasifikasikan kategori dan prioritas laporan warga secara otomatis menggunakan AI, **sehingga** pengurus dapat memprioritaskan penanganan tanpa harus membaca dan mengkategorikan setiap laporan secara manual.
 
 ---
 
-#### US-LAP-03
-**Sebagai** Ketua RT/Sekretaris RW/Ketua RW, **saya ingin** melihat daftar laporan warga terurut berdasarkan prioritas hasil klasifikasi AI, **sehingga** saya dapat menindaklanjuti isu yang paling mendesak terlebih dahulu.
+#### US-LAP-03 *(OBSOLETE / OUT-OF-SCOPE v1)*
+> **Catatan Penyelarasan Scope Final:** Pemfilteran berbasis kategori AI berada di luar cakupan v1. Pengurus memantau laporan menggunakan filter status penanganan (`SUBMITTED`, `IN_PROGRESS`, `RESOLVED`, `CLOSED`).
 
-**Kriteria Penerimaan:**
-- [ ] **Given** ada beberapa laporan dengan skor prioritas berbeda, **when** saya membuka daftar laporan dan mengurutkan berdasarkan prioritas, **then** laporan dengan skor tertinggi tampil di posisi teratas.
-- [ ] **Given** saya memfilter berdasarkan kategori tertentu (mis. "Infrastruktur"), **when** saya menerapkan filter, **then** hanya laporan dengan kategori tersebut yang ditampilkan.
+**Sebagai** Ketua RT/Sekretaris RW/Ketua RW, **saya ingin** melihat daftar laporan warga terurut berdasarkan prioritas hasil klasifikasi AI, **sehingga** saya dapat menindaklanjuti isu yang paling mendesak terlebih dahulu.
 
 ---
 
 #### US-LAP-04
-**Sebagai** pengurus RW (RT/Sekretaris/Ketua RW), **saya ingin** memperbarui status penanganan laporan warga (proses → selesai), **sehingga** warga dapat memantau progres penanganan keluhannya secara transparan.
+**Sebagai** pengurus RW (RT/Sekretaris/Ketua RW), **saya ingin** memperbarui status penanganan laporan warga (`SUBMITTED → IN_PROGRESS → RESOLVED → CLOSED`), **sehingga** warga dapat memantau progres penanganan keluhannya secara transparan.
 
 **Kriteria Penerimaan:**
-- [ ] **Given** laporan berstatus `CLASSIFIED` atau `IN_PROGRESS`, **when** saya mengubah status menjadi `RESOLVED` dengan catatan penyelesaian, **then** timestamp `resolvedAt` tercatat dan warga dapat melihat catatan tersebut via tracking.
+- [ ] **Given** laporan berstatus `SUBMITTED` atau `IN_PROGRESS`, **when** saya mengubah status menjadi `RESOLVED` dengan catatan penyelesaian, **then** timestamp `resolvedAt` tercatat dan warga dapat melihat catatan tersebut via tracking.
 - [ ] **Given** laporan sudah berstatus `CLOSED`, **when** saya mencoba mengubah statusnya kembali, **then** sistem menolak dengan pesan bahwa laporan sudah ditutup secara final.
 
 ---
@@ -174,11 +169,38 @@ Cerita pengguna dikelompokkan berdasarkan modul fungsional (sesuai PRD Bagian 4)
 ---
 
 #### US-KEU-03
-**Sebagai** Bendahara RW/Ketua RW, **saya ingin** melihat rekapitulasi keuangan iuran per periode dan per wilayah RT, **sehingga** saya dapat menyusun laporan pertanggungjawaban keuangan RW secara berkala.
+**Sebagai** Bendahara RW/Ketua RW, **saya ingin** melihat rekapitulasi keuangan iuran per periode dan per wilayah RT, **sehingga** saya dapat menyusun laporan pertanggungjawaban penerimaan iuran warga secara berkala.
 
 **Kriteria Penerimaan:**
-- [ ] **Given** saya memilih periode bulan dan tahun tertentu, **when** saya membuka rekapitulasi, **then** sistem menampilkan total dana diterima, jumlah transaksi, dan rincian per jenis iuran hanya dari transaksi berstatus `APPROVED`.
-- [ ] **Given** belum ada transaksi `APPROVED` pada periode yang dipilih, **when** saya membuka rekapitulasi, **then** sistem menampilkan nilai nol/kosong, bukan error.
+- [ ] **Given** saya memilih periode bulan dan tahun tertentu, **when** saya membuka rekapitulasi iuran, **then** sistem menampilkan total dana diterima, jumlah transaksi, dan rincian per jenis iuran hanya dari transaksi berstatus `APPROVED`.
+- [ ] **Given** belum ada transaksi `APPROVED` pada periode yang dipilih, **when** saya membuka rekapitulasi iuran, **then** sistem menampilkan nilai nol/kosong, bukan error.
+
+---
+
+#### US-KEU-04
+**Sebagai** Bendahara RW, **saya ingin** mencatat pengeluaran kas RW (kas keluar) dengan kategori, keterangan, nominal, dan tanggal pengeluaran, **sehingga** seluruh arus kas keluar lingkungan RW terdokumentasi dan dapat dipertanggungjawabkan.
+
+**Kriteria Penerimaan:**
+- [ ] **Given** saya mengisi kategori, keterangan (min. 10 karakter), nominal (> 0), dan tanggal pengeluaran yang valid, **when** saya submit, **then** transaksi pengeluaran tersimpan dengan status `PENDING` menunggu persetujuan Ketua RW.
+- [ ] **Given** saya memasukkan nominal 0 atau negatif, **when** saya submit, **then** sistem menolak dengan pesan validasi nominal.
+
+---
+
+#### US-KEU-05
+**Sebagai** Ketua RW, **saya ingin** meninjau dan menyetujui atau menolak setiap pengajuan pengeluaran kas yang dicatat Bendahara RW, **sehingga** prinsip *dual-control* pengeluaran dana RW ditegakkan dan tidak ada pencairan dana sepihak.
+
+**Kriteria Penerimaan:**
+- [ ] **Given** ada transaksi kas keluar berstatus `PENDING`, **when** saya menyetujui, **then** status berubah menjadi `APPROVED` beserta timestamp dan identitas Ketua RW tercatat.
+- [ ] **Given** ada transaksi kas keluar berstatus `PENDING`, **when** saya menolak dengan catatan alasan penolakan, **then** status berubah menjadi `REJECTED` dan Bendahara RW dapat meninjau alasan tersebut untuk mencatat ulang jika diperlukan.
+
+---
+
+#### US-KEU-06
+**Sebagai** Bendahara RW/Ketua RW, **saya ingin** melihat rekapitulasi keuangan gabungan (total pemasukan iuran `APPROVED`, total pengeluaran kas keluar `APPROVED`, dan saldo akhir) per periode, **sehingga** posisi saldo riil kas RW dapat dipantau secara transparan dan akurat.
+
+**Kriteria Penerimaan:**
+- [ ] **Given** saya memilih periode bulan dan tahun tertentu, **when** saya membuka rekapitulasi keuangan gabungan, **then** sistem menampilkan total pemasukan dari iuran `APPROVED`, total pengeluaran dari kas keluar `APPROVED`, saldo akhir (`pemasukan - pengeluaran`), serta rincian per pos anggaran.
+- [ ] **Given** terdapat transaksi berstatus `PENDING` atau `REJECTED`, **when** rekapitulasi dihitung, **then** transaksi tersebut tidak diikutsertakan dalam kalkulasi saldo akhir resmi.
 
 ---
 
@@ -257,39 +279,36 @@ Alur ini merepresentasikan proses bisnis inti sistem, dari sisi warga hingga sur
 
 ---
 
-### 2.3 Alur Utama: Laporan & Aspirasi Warga dengan Klasifikasi AI
+### 2.3 Alur Utama: Penyampaian & Penanganan Laporan Warga
 
 ```
-[Warga] → [Sistem: simpan + antrean job] → [AI Classification Service] → [Sistem: update status] → [Pengurus RW] → [Warga]
+[Warga: submit laporan] → [Sistem: status SUBMITTED + ticket] → [Pengurus RW: IN_PROGRESS → RESOLVED → CLOSED] → [Warga: lacak tiket]
 ```
 
 **Langkah demi langkah:**
 
-1. **Warga** membuka Portal Warga, memilih menu "Sampaikan Laporan/Aspirasi".
-2. **Warga** mengisi judul, deskripsi keluhan, dan lokasi kejadian (NIK opsional bisa diminta untuk verifikasi, tergantung kebijakan privasi yang ditetapkan).
-3. **Sistem** menyimpan laporan dengan status `SUBMITTED`, menerbitkan `ticket_number`, dan **mendorong job klasifikasi ke queue** (proses asinkron, tidak menahan response ke warga).
-4. **Sistem** menampilkan `ticket_number` ke warga sebagai konfirmasi laporan diterima.
-5. **Background job** memanggil layanan AI Classification dengan teks keluhan sebagai input.
-6. **Layanan AI** mengembalikan kategori (mis. "Infrastruktur") dan skor prioritas.
-7. **Sistem** memperbarui record laporan: status → `CLASSIFIED`, `kategori_ai` dan `skor_prioritas_ai` terisi.
-8. **Pengurus RW** (RT/Sekretaris/Ketua RW sesuai wilayah) melihat laporan baru di dashboard, dapat mengurutkan berdasarkan skor prioritas.
-9. **Pengurus RW** melakukan disposisi/tindak lanjut, mengubah status menjadi `IN_PROGRESS`.
-10. Setelah penanganan selesai di lapangan, **Pengurus RW** mengubah status menjadi `RESOLVED` disertai catatan penyelesaian.
-11. **Pengurus RW** (opsional) menutup laporan secara final dengan status `CLOSED` setelah periode konfirmasi tertentu.
-12. **Warga** dapat memantau seluruh transisi status ini kapan saja melalui halaman "Lacak Laporan" menggunakan `ticket_number`.
+1. **Warga** membuka Portal Warga, memilih menu "Sampaikan Laporan & Aspirasi".
+2. **Warga** mengisi judul, deskripsi keluhan minimal 20 karakter, lokasi kejadian, dan opsional NIK untuk verifikasi warga.
+3. **Sistem** menyimpan laporan dengan status `SUBMITTED`, menerbitkan `ticket_number` unik (`LPR-YYYYMMDD-XXXXX`), dan mencatat audit trail via Observer.
+4. **Sistem** menampilkan halaman konfirmasi dengan `ticket_number` ke warga.
+5. **Pengurus RW** (Ketua RT / Sekretaris RW / Ketua RW) melihat laporan baru di dashboard pengurus.
+6. **Pengurus RW** melakukan tindak lanjut di lapangan dan mengubah status menjadi `IN_PROGRESS`.
+7. Setelah penanganan selesai, **Pengurus RW** mengubah status menjadi `RESOLVED` disertai catatan tindak lanjut penyelesaian.
+8. **Pengurus RW** dapat menutup laporan secara final dengan status `CLOSED` (status permanen).
+9. **Warga** memantau seluruh transisi status dan catatan tindak lanjut kapan saja melalui halaman "Lacak Laporan" menggunakan `ticket_number`.
 
 ---
 
 ### 2.4 Alur Utama: Pencatatan & Verifikasi Iuran Warga
 
 ```
-[Ketua RT] → [Sistem: status PENDING] → [Bendahara RW] → [Sistem: status APPROVED/REJECTED] → [Rekapitulasi]
+[Ketua RT] → [Sistem: status PENDING] → [Bendahara RW] → [Sistem: status APPROVED/REJECTED] → [Rekapitulasi Iuran]
 ```
 
 **Langkah demi langkah:**
 
 1. **Ketua RT** menerima pembayaran iuran dari warga secara langsung (proses fisik di luar sistem).
-2. **Ketua RT** login, membuka menu "Catat Iuran", memilih KK pembayar, jenis iuran, nominal, dan periode.
+2. **Ketua RT** login, membuka menu "Catat Iuran", memasukkan No. KK pembayar, memilih jenis iuran, nominal, dan periode.
 3. **Sistem** menyimpan transaksi dengan status `PENDING`.
 4. **Bendahara RW** login, membuka daftar "Transaksi Menunggu Persetujuan".
 5. **Bendahara RW** meninjau kesesuaian data (opsional: cocokkan dengan bukti fisik/transfer), lalu memilih **Setujui** atau **Tolak**.
@@ -297,6 +316,25 @@ Alur ini merepresentasikan proses bisnis inti sistem, dari sisi warga hingga sur
    - Jika **Tolak** → status `REJECTED` disertai alasan; Ketua RT dapat mencatat ulang dengan data yang benar.
 6. **Bendahara RW/Ketua RW** membuka menu "Rekapitulasi Keuangan", memilih periode, dan melihat total dana diterima serta rincian per jenis iuran (hanya transaksi `APPROVED` yang dihitung).
 7. **Sistem** mencatat seluruh transaksi dan perubahan status di `audit_logs` untuk keperluan audit di kemudian hari.
+
+---
+
+### 2.5 Alur Utama: Pencatatan & Persetujuan Pengeluaran Kas RW (Kas Keluar)
+
+```
+[Bendahara RW] → [Sistem: status PENDING] → [Ketua RW] → [Sistem: status APPROVED/REJECTED] → [Rekapitulasi Gabungan]
+```
+
+**Langkah demi langkah:**
+
+1. **Bendahara RW** login, membuka menu "Catat Kas Keluar", mengisi kategori pengeluaran, keterangan rincian keperluan, nominal dana, tanggal pengeluaran, dan mengunggah foto bukti kuitansi/struk (opsional).
+2. **Sistem** menyimpan transaksi pengeluaran dengan status `PENDING`.
+3. **Ketua RW** login, membuka menu "Persetujuan Kas Keluar".
+4. **Ketua RW** meninjau rincian pengeluaran dana dan bukti kuitansi, lalu memilih **Setujui** atau **Tolak**.
+   - Jika **Setujui** → status `APPROVED`, transaksi masuk sebagai pengurang saldo resmi kas RW.
+   - Jika **Tolak** → status `REJECTED` disertai catatan alasan penolakan.
+5. **Bendahara RW/Ketua RW** membuka menu "Rekapitulasi Keuangan", memilih periode, dan melihat total pemasukan, total pengeluaran, serta saldo akhir kas RW (`Pemasukan APPROVED - Pengeluaran APPROVED`).
+6. **Sistem** mencatat seluruh aksi di `audit_logs` (event `CREATE_KAS_KELUAR`, `APPROVE_KAS_KELUAR`, `REJECT_KAS_KELUAR`).
 
 ---
 
@@ -330,14 +368,16 @@ Alur ini merepresentasikan proses bisnis inti sistem, dari sisi warga hingga sur
 | Warga mengirim laporan dengan lokasi kejadian di luar wilayah RW 047 | Sistem tetap menerima laporan (field lokasi bersifat teks bebas); pengurus dapat menolak/menutup laporan tersebut sebagai `CLOSED` dengan catatan bahwa laporan di luar cakupan wilayah. |
 | Pengurus mencoba mengubah status laporan yang sudah `CLOSED` | Sistem menolak perubahan status dengan `400 Bad Request` — status `CLOSED` bersifat final. |
 
-### 3.4 Keuangan (Iuran)
+### 3.4 Keuangan (Iuran & Kas)
 
 | Skenario | Respons Sistem yang Diharapkan |
 |---|---|
 | Ketua RT mencatat nominal iuran yang tidak sesuai dengan `default_amount` pada `iuran_types` | Sistem tetap menerima (nominal aktual bisa berbeda, mis. pembulatan atau kelebihan bayar); tidak ada validasi ketat kesesuaian nominal di versi awal, namun perbedaan signifikan dapat menjadi pertimbangan Bendahara saat approval. |
 | Bendahara RW menolak transaksi yang sudah lama tercatat (mis. iuran bulan lalu) | Sistem tetap mengizinkan penolakan dengan catatan alasan; transaksi berstatus `REJECTED` tidak masuk hitungan rekapitulasi resmi periode manapun. |
-| Ketua RT mencatat transaksi untuk kombinasi KK + jenis iuran + periode yang sama dengan transaksi yang sudah tercatat sebelumnya (potensi duplikasi) | **(Keputusan rebuild v1)** Sistem **menolak** pencatatan duplikat secara otomatis di level database (UNIQUE constraint pada `no_kk` + `iuran_type_id` + `periode_bulan` + `periode_tahun`, lihat DATABASE_SCHEMA.md §3.10) — API mengembalikan `409 Conflict` dengan pesan bahwa iuran periode tersebut sudah tercatat. Transaksi berstatus `REJECTED` dikecualikan dari constraint ini, sehingga Ketua RT tetap dapat mencatat ulang setoran yang sebelumnya ditolak Bendahara dengan data yang benar. |
+| Ketua RT mencatat transaksi untuk kombinasi No. KK + jenis iuran + periode yang sama dengan transaksi aktif yang sudah tercatat sebelumnya (potensi duplikasi) | **(Keputusan rebuild v1)** Sistem **menolak** pencatatan duplikat secara otomatis di level database (UNIQUE constraint pada kombinasi KK + jenis iuran + periode yang aktif, lihat DATABASE_SCHEMA.md §3.10) — API mengembalikan `409 Conflict` dengan pesan bahwa iuran periode tersebut sudah tercatat. Transaksi berstatus `REJECTED` dikecualikan dari constraint ini, sehingga Ketua RT tetap dapat mencatat ulang setoran yang sebelumnya ditolak Bendahara dengan data yang benar. |
 | Bendahara RW membuka rekapitulasi untuk periode yang belum memiliki transaksi apa pun | Sistem menampilkan hasil kosong/nol dengan jelas, **bukan** error `404`/`500`. |
+| Ketua RW menolak pengajuan kas keluar yang diajukan Bendahara RW | Sistem mengubah status kas keluar menjadi `REJECTED` dengan catatan alasan; transaksi ditolak ini tidak memotong saldo kas riil pada rekapitulasi keuangan. |
+| Bendahara RW mencoba menyetujui (approve) pengajuan kas keluar yang dicatatnya sendiri | Sistem menolak dengan `403 Forbidden` — persetujuan kas keluar wajib dilakukan oleh Ketua RW (menegakkan dual-control). |
 
 ### 3.5 Data Kependudukan & Privasi
 
@@ -364,8 +404,10 @@ Alur ini merepresentasikan proses bisnis inti sistem, dari sisi warga hingga sur
 | US-KEP-01 s/d US-KEP-03 | Kependudukan | Ketua RT, Sekretaris RW, Ketua RW |
 | US-SRT-01 s/d US-SRT-04 | Administrasi Surat | Warga, Ketua RT, Sekretaris/Ketua RW |
 | US-LAP-01 s/d US-LAP-04 | Laporan & Aspirasi | Warga, Sistem (AI), Pengurus RW |
-| US-KEU-01 s/d US-KEU-03 | Keuangan RW | Ketua RT, Bendahara RW, Ketua RW |
+| US-KEU-01 s/d US-KEU-06 | Keuangan RW | Ketua RT, Bendahara RW, Ketua RW |
 | US-INFO-01, US-INFO-02 | Informasi Publik | Sekretaris RW, Warga |
 | US-DASH-01 | Dashboard & Monitoring | Seluruh Peran Pengurus |
+
+> Dokumen ini dirancang agar setiap `US-xxx` dapat langsung ditautkan sebagai *ticket*/*issue* pada backlog sprint, dengan Acceptance Criteria yang sudah dalam format checklist siap divalidasi QA.
 
 > Dokumen ini dirancang agar setiap `US-xxx` dapat langsung ditautkan sebagai *ticket*/*issue* pada backlog sprint, dengan Acceptance Criteria yang sudah dalam format checklist siap divalidasi QA.

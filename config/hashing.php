@@ -49,4 +49,15 @@ return [
         'time' => 4,
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Data Search Hash Key (Deterministic HMAC-SHA256)
+    |--------------------------------------------------------------------------
+    |
+    | Kunci HMAC terpisah dari APP_KEY, khusus untuk hash pencarian presisi
+    | dan pencegahan duplikasi data sensitif (NIK, No. KK).
+    |
+    */
+    'data_search_hash_key' => env('DATA_SEARCH_HASH_KEY'),
+
 ];

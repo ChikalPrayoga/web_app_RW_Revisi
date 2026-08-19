@@ -2,6 +2,10 @@
 
 namespace App\Providers;
 
+use App\Models\KartuKeluarga;
+use App\Models\Warga;
+use App\Observers\KartuKeluargaObserver;
+use App\Observers\WargaObserver;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
@@ -25,7 +29,8 @@ class EventServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        KartuKeluarga::observe(KartuKeluargaObserver::class);
+        Warga::observe(WargaObserver::class);
     }
 
     /**

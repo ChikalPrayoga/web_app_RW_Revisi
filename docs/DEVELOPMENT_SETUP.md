@@ -16,15 +16,15 @@ Sesuai SYSTEM_ARCHITECTURE.md, stack yang digunakan pada rebuild ini:
 
 | Layer | Teknologi |
 |---|---|
-| Backend | PHP 8.2+ / Laravel (LTS terbaru) |
+| Backend | PHP 8.1+ (Baseline Composer `^8.1`) / Laravel 10 (LTS) |
 | Frontend | Blade + Livewire/Alpine.js + Tailwind CSS |
-| Database | PostgreSQL 15+ |
-| Cache/Session/Queue | Redis 7+ |
+| Database | MySQL 8+ (Runtime Aplikasi) / SQLite in-memory (PHPUnit Testing) |
+| Cache/Session/Queue | Redis 7+ / file/sync driver (lokal) |
 | Web Server (lokal) | Laravel Sail / built-in `artisan serve` |
 | Container | Docker + Docker Compose |
 | Package manager | Composer (PHP), npm (JS) |
 
-> Dokumen ini mengasumsikan penggunaan **Docker Compose** sebagai metode setup utama (menggantikan Laragon pada sistem acuan yang bersifat Windows-only) agar environment pengembangan konsisten lintas OS (Windows/macOS/Linux), sesuai rekomendasi SYSTEM_ARCHITECTURE.md Bagian 5.1. Panduan instalasi manual (tanpa Docker) juga disertakan sebagai alternatif.
+> Dokumen ini mengasumsikan penggunaan **Docker Compose** atau web server lokal untuk menjalankan aplikasi dengan target database **MySQL 8+** dan pengujian otomatis PHPUnit menggunakan database in-memory **SQLite**.
 
 ---
 
@@ -44,10 +44,10 @@ Sesuai SYSTEM_ARCHITECTURE.md, stack yang digunakan pada rebuild ini:
 
 | Tools | Versi Minimum | Catatan |
 |---|---|---|
-| **PHP** | 8.2+ | Ekstensi wajib: `pdo_pgsql`, `mbstring`, `openssl`, `tokenizer`, `xml`, `ctype`, `json`, `bcmath`, `fileinfo`, `redis` |
+| **PHP** | 8.1+ | Baseline `composer.json` (`^8.1`). Ekstensi wajib: `pdo_mysql`, `pdo_sqlite`, `mbstring`, `openssl`, `tokenizer`, `xml`, `ctype`, `json`, `bcmath`, `fileinfo`, `redis` |
 | **Composer** | 2.6+ | Dependency manager PHP |
-| **PostgreSQL** | 15+ | Database utama — gantikan SQLite pada sistem acuan |
-| **Redis** | 7+ | Cache, session store, dan queue driver |
+| **MySQL** | 8.0+ | Database utama runtime aplikasi (port 3306) |
+| **Redis** | 7+ | Cache, session store, dan queue driver (opsional di lokal, bisa fallback ke file/sync) |
 | **Node.js & npm** | 20 LTS / 10+ | Build asset frontend |
 | **Git** | 2.40+ | Version control |
 
@@ -56,7 +56,7 @@ Sesuai SYSTEM_ARCHITECTURE.md, stack yang digunakan pada rebuild ini:
 | Tools | Kegunaan |
 |---|---|
 | **Laravel Sail** | Wrapper Docker Compose bawaan Laravel — mempermudah perintah CLI (`sail artisan` menggantikan `docker compose exec`) |
-| **TablePlus / DBeaver / pgAdmin** | GUI client untuk inspeksi database PostgreSQL |
+| **TablePlus / DBeaver / HeidiSQL / phpMyAdmin** | GUI client untuk inspeksi database MySQL |
 | **RedisInsight** | GUI client untuk inspeksi Redis (cache, queue jobs) |
 | **Postman / Insomnia** | Pengujian manual endpoint REST API (rujuk API_SPECIFICATION.md) |
 | **VS Code** dengan ekstensi *PHP Intelephense*, *Laravel Blade Snippets*, *Tailwind CSS IntelliSense* | Editor kode dengan dukungan Laravel yang baik |
@@ -111,23 +111,23 @@ APP_URL=http://localhost:8000
 APP_TIMEZONE=Asia/Jakarta
 
 # ==========================================
-# DATABASE (PostgreSQL)
+# DATABASE (MySQL — Target Runtime Aplikasi)
 # ==========================================
-DB_CONNECTION=pgsql
-DB_HOST=127.0.0.1                  # gunakan `pgsql` sebagai host jika via Docker Compose
-DB_PORT=5432
-DB_DATABASE=sim_layanan_warga
-DB_USERNAME=postgres
-DB_PASSWORD=secret
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=database_simbaru
+DB_USERNAME=root
+DB_PASSWORD=
 
 # ==========================================
-# CACHE, SESSION, QUEUE (Redis)
+# CACHE, SESSION, QUEUE (Redis / Local Fallback)
 # ==========================================
-CACHE_DRIVER=redis
-SESSION_DRIVER=redis
+CACHE_DRIVER=file
+SESSION_DRIVER=file
 SESSION_LIFETIME=120                # menit
-QUEUE_CONNECTION=redis
-REDIS_HOST=127.0.0.1                # gunakan `redis` sebagai host jika via Docker Compose
+QUEUE_CONNECTION=sync
+REDIS_HOST=127.0.0.1
 REDIS_PASSWORD=null
 REDIS_PORT=6379
 
@@ -143,7 +143,7 @@ SESSION_DOMAIN=localhost
 # Kunci HMAC terpisah dari APP_KEY, khusus untuk hash pencarian presisi
 # (lihat DATABASE_SCHEMA.md Bagian 5.4). JANGAN gunakan nilai contoh ini di staging/production —
 # generate nilai acak sendiri dan simpan di secret manager, bukan hardcode.
-DATA_SEARCH_HASH_KEY=ganti_dengan_nilai_acak_minimal_32_karakter
+DATA_SEARCH_HASH_KEY=sim-warga-rw047-deterministic-search-key-32chars!
 
 # ==========================================
 # LAYANAN AI CLASSIFICATION (Laporan & Aspirasi)
@@ -185,20 +185,18 @@ SENTRY_LARAVEL_DSN=
 
 ## 3. Inisialisasi & Migrasi Basis Data (Database Setup & Migration)
 
-### 3.1 (Jika Setup Manual) Membuat Database PostgreSQL
+### 3.1 (Jika Setup Manual) Membuat Database MySQL
 
 ```bash
-# Masuk ke psql sebagai superuser
-psql -U postgres
+# Masuk ke CLI MySQL (mis. via MySQL Command Line Client / Terminal)
+mysql -u root -p
 
-# Di dalam prompt psql:
-CREATE DATABASE sim_layanan_warga;
-CREATE USER sim_user WITH ENCRYPTED PASSWORD 'secret';
-GRANT ALL PRIVILEGES ON DATABASE sim_layanan_warga TO sim_user;
-\q
+# Di dalam prompt MySQL:
+CREATE DATABASE database_simbaru CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+EXIT;
 ```
 
-Sesuaikan `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` pada `.env` dengan kredensial di atas.
+Sesuaikan `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD` pada `.env` dengan konfigurasi lokal Anda.
 
 ### 3.2 Menjalankan Migrasi
 
@@ -210,7 +208,7 @@ php artisan migrate
 php artisan migrate:fresh
 ```
 
-Urutan migrasi mengikuti dependensi foreign key sesuai domain pada DATABASE_SCHEMA.md: `roles` & `permissions` → `users` → `kartu_keluargas` → `wargas` → `pengajuan_surats` / `laporan_aspirasis` → `iuran_types` → `catatan_iurans` → `informasi_publiks` → `audit_logs`.
+Urutan migrasi mengikuti dependensi foreign key sesuai domain pada DATABASE_SCHEMA.md: `roles` & `permissions` → `users` → `kartu_keluargas` → `wargas` → `pengajuan_surats` / `laporan_aspirasis` → `iuran_types` → `catatan_iurans` → `kas_keluars` → `informasi_publiks` → `audit_logs`.
 
 ### 3.3 Menjalankan Seeder (Data Awal)
 

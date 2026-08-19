@@ -133,19 +133,20 @@ Sistem harus menyediakan layanan pengajuan, verifikasi, persetujuan, penerbitan,
 - Nomor surat resmi hanya diterbitkan pada status `COMPLETED`.
 
 ### FR-04 — Laporan & Aspirasi Warga
-Sistem harus menyediakan fasilitas penyampaian laporan dan aspirasi warga, pengelolaan status penyelesaian, disposisi, riwayat penanganan laporan, **dilengkapi klasifikasi otomatis berbasis AI**.
+Sistem harus menyediakan fasilitas penyampaian laporan dan aspirasi warga (publik), penomoran tiket unik, pelacakan status, serta pengelolaan status penanganan dan disposisi tindak lanjut oleh pengurus RW.
+
+> **Catatan Penyelarasan Scope Final:** Fitur klasifikasi otomatis berbasis AI berada di luar cakupan v1 (mengacu `PROJECT_SCOPE_BOUNDARIES.md` dan skripsi final). State machine yang berlaku adalah `SUBMITTED → IN_PROGRESS → RESOLVED → CLOSED`.
 
 **User Flow:**
-1. Warga mengirim laporan/aspirasi (judul, deskripsi, lokasi kejadian) melalui web.
-2. Sistem menghasilkan nomor tiket unik dan menyimpan laporan dengan status `SUBMITTED`.
-3. Mekanisme AI mengklasifikasikan kategori/prioritas laporan → status berubah menjadi `CLASSIFIED`.
-4. Pengurus RW meninjau, mendisposisikan, dan mengubah status: `IN_PROGRESS → RESOLVED → CLOSED`.
-5. Warga memantau perkembangan laporannya secara real-time melalui nomor tiket.
+1. Warga mengirim laporan/aspirasi (judul, deskripsi keluhan, lokasi kejadian, opsional NIK) melalui web.
+2. Sistem menghasilkan nomor tiket unik (`LPR-YYYYMMDD-XXXXX`) dan menyimpan laporan dengan status `SUBMITTED`.
+3. Pengurus RW meninjau daftar laporan dan mengubah status: `IN_PROGRESS → RESOLVED → CLOSED` dengan catatan tindak lanjut.
+4. Warga memantau perkembangan laporannya secara real-time melalui nomor tiket pada portal publik.
 
 **Acceptance Criteria:**
-- Input teks keluhan disanitasi (sanitized input) untuk mencegah injection/XSS.
-- Setiap laporan memiliki jejak status lengkap (submitted_at, resolved_at, dan histori perubahan).
-- Keputusan tindak lanjut akhir tetap berada di tangan pengurus RW (AI hanya membantu klasifikasi/prioritisasi, bukan menggantikan keputusan manusia).
+- Input teks keluhan disanitasi (*sanitized input*) untuk mencegah injection/XSS.
+- Setiap laporan memiliki jejak status lengkap (`submitted_at`, `resolved_at`, dan audit log terpusat).
+- Keputusan dan catatan tindak lanjut penanganan diisi oleh pengurus RW yang berwenang.
 
 ### FR-05 — Keuangan RW (Iuran & Kas)
 Sistem harus menyediakan pengelolaan data iuran warga, kas masuk, kas keluar, serta penyusunan laporan keuangan RW.

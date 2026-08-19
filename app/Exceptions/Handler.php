@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Exceptions;
 
+use App\Support\Audit\AuditService;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Exceptions\Handler as ExceptionHandler;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -69,6 +71,10 @@ class Handler extends ExceptionHandler
             return $this->renderApiException($request, $e);
         }
 
+        if ($e instanceof AuthorizationException || ($e instanceof HttpException && $e->getStatusCode() === 403)) {
+            AuditService::logUnauthorizedAccess($request, $e);
+        }
+
         return parent::render($request, $e);
     }
 
@@ -85,6 +91,16 @@ class Handler extends ExceptionHandler
             ], 401);
         }
 
+        // 403 Forbidden — otorisasi gagal (catat di audit_logs sesuai USER_STORIES.md §3.5)
+        if ($e instanceof AuthorizationException) {
+            AuditService::logUnauthorizedAccess($request, $e);
+
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage() ?: 'Anda tidak memiliki hak akses untuk melakukan aksi ini.',
+            ], 403);
+        }
+
         // 422 Validation Error — field wajib kosong/format salah
         if ($e instanceof ValidationException) {
             return response()->json([
@@ -97,6 +113,10 @@ class Handler extends ExceptionHandler
         // HTTP exception (403, 404, 429, dll.)
         if ($e instanceof HttpException) {
             $statusCode = $e->getStatusCode();
+
+            if ($statusCode === 403) {
+                AuditService::logUnauthorizedAccess($request, $e);
+            }
 
             $messages = [
                 403 => 'Anda tidak memiliki izin untuk mengakses sumber daya ini.',

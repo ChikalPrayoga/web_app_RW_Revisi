@@ -81,6 +81,7 @@ class PermissionSeeder extends Seeder
                 'laporan.view',
                 'laporan.update_status',
                 'keuangan.view',
+                'keuangan.approve',
                 'informasi.view',
                 'informasi.create',
                 'informasi.edit',
@@ -107,6 +108,7 @@ class PermissionSeeder extends Seeder
             'BENDAHARA_RW' => [
                 'dashboard.view',
                 'keuangan.view',
+                'keuangan.record',
                 'keuangan.approve',
                 'keuangan.manage_types',
                 'informasi.view',

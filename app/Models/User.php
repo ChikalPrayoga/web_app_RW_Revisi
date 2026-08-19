@@ -89,6 +89,20 @@ class User extends Authenticatable
     }
 
     /**
+     * Determine if the user has any of the given roles.
+     *
+     * @param  array<int, string>  $roleNames
+     */
+    public function hasAnyRole(array $roleNames): bool
+    {
+        if ($this->role === null) {
+            return false;
+        }
+
+        return in_array($this->role->name, $roleNames, true);
+    }
+
+    /**
      * Determine if the user has a specific permission.
      */
     public function hasPermission(string $permissionName): bool
@@ -98,5 +112,55 @@ class User extends Authenticatable
         }
 
         return $this->role->hasPermission($permissionName);
+    }
+
+    /**
+     * Catatan iuran yang dicatat oleh user ini (sebagai Ketua RT).
+     *
+     * @return HasMany<CatatanIuran>
+     */
+    public function recordedIurans(): HasMany
+    {
+        return $this->hasMany(CatatanIuran::class, 'recorded_by_user_id');
+    }
+
+    /**
+     * Catatan iuran yang diverifikasi oleh user ini (sebagai Bendahara RW).
+     *
+     * @return HasMany<CatatanIuran>
+     */
+    public function approvedIurans(): HasMany
+    {
+        return $this->hasMany(CatatanIuran::class, 'approved_by_user_id');
+    }
+
+    /**
+     * Kas keluar yang dicatat oleh user ini (sebagai Bendahara RW).
+     *
+     * @return HasMany<KasKeluar>
+     */
+    public function recordedKasKeluars(): HasMany
+    {
+        return $this->hasMany(KasKeluar::class, 'recorded_by_user_id');
+    }
+
+    /**
+     * Kas keluar yang disetujui oleh user ini (sebagai Ketua RW).
+     *
+     * @return HasMany<KasKeluar>
+     */
+    public function approvedKasKeluars(): HasMany
+    {
+        return $this->hasMany(KasKeluar::class, 'approved_by_user_id');
+    }
+
+    /**
+     * Informasi publik yang dipublikasikan oleh user ini.
+     *
+     * @return HasMany<InformasiPublik>
+     */
+    public function informasiPubliks(): HasMany
+    {
+        return $this->hasMany(InformasiPublik::class, 'published_by_user_id');
     }
 }

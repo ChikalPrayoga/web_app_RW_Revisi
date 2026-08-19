@@ -44,7 +44,7 @@ Prinsip desain yang mengikat kedua kebutuhan ini:
 | **Success** | `#2F8A5B` | Status selesai/disetujui (`COMPLETED`, `APPROVED`, `RESOLVED`) |
 | **Warning** | `#D69A2D` | Status dalam proses/menunggu (`SUBMITTED`, `RT_REVIEW`, `PENDING`, `IN_PROGRESS`) |
 | **Danger** | `#C0432E` | Status ditolak/error (`REJECTED`, pesan kesalahan, aksi hapus) |
-| **Info** | `#3D7EA6` | Status klasifikasi AI (`CLASSIFIED`), notifikasi netral |
+| **Info** | `#3D7EA6` | Notifikasi netral dan informasi sistem |
 
 > **Catatan aksesibilitas:** seluruh kombinasi warna teks-di-atas-latar pada tabel ini memenuhi rasio kontras minimal **4.5:1** (WCAG AA) untuk teks berukuran normal. Warna status **tidak pernah** menjadi satu-satunya penanda — selalu disertai ikon dan label teks (lihat Bagian 1.3 Status Ribbon), agar tetap dapat dibedakan oleh pengguna dengan buta warna.
 
@@ -307,7 +307,7 @@ Satu halaman, satu input, satu aksi — sengaja dibuat sesederhana mungkin karen
 | **Tombol setelah diklik** (submit form) | Teks tombol diganti spinner kecil + label tetap terlihat pudar (mis. "Menyimpan..."), tombol otomatis `disabled` untuk mencegah submit ganda |
 | **Halaman tabel saat memuat data** | **Skeleton screen** — baris tabel placeholder abu-abu berbentuk sama seperti data asli, bukan spinner tunggal di tengah layar (memberi ekspektasi struktur konten yang akan muncul) |
 | **Kartu dashboard saat memuat statistik** | Skeleton kotak dengan animasi shimmer halus menggantikan angka |
-| **Proses klasifikasi AI berjalan** (status `SUBMITTED` menuju `CLASSIFIED`) | Badge status menampilkan ikon jam pasir kecil beranimasi dengan label "Sedang diproses..." — memberi sinyal bahwa sistem sedang bekerja di latar belakang, bukan macet |
+| **Proses latar belakang/asinkron** | Badge status menampilkan animasi shimmer halus dengan label status terkait — memberi sinyal bahwa sistem sedang memproses data |
 | **Full-page loading** (jarang, hanya saat transisi besar) | Logo RW kecil dengan indikator progres halus di bawahnya, dibatasi maksimal 3 detik sebelum menampilkan pesan "Memuat lebih lama dari biasanya..." |
 
 ### 3.3 Notifikasi & Umpan Balik (Toast/Alert)
